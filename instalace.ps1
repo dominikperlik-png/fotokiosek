@@ -218,10 +218,14 @@ if (-not (Test-Path $localApk) -or (Ask 'Stáhnout nejnovější verzi z GitHubu
     try {
         Info "Stahuji $releaseUrl"
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $releaseUrl -OutFile $localApk -UseBasicParsing
+        # Nejdřív do dočasného souboru – nepovedené stažení nesmí přepsat funkční Fotokiosek.apk.
+        $tmpApk = "$localApk.stahuje"
+        Invoke-WebRequest -Uri $releaseUrl -OutFile $tmpApk -UseBasicParsing
+        Move-Item -Force $tmpApk $localApk
         Ok 'Staženo.'
     } catch {
         Warn "Stažení se nepovedlo ($($_.Exception.Message)), použiju APK ze složky."
+        if ($tmpApk) { Remove-Item -Force -ErrorAction SilentlyContinue $tmpApk }
     }
 }
 $apk = @(

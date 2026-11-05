@@ -74,8 +74,16 @@ class KioskSettings(context: Context) {
     fun importConfig(context: Context): Boolean {
         val file = File(context.getExternalFilesDir(null) ?: return false, "config.properties")
         if (!file.exists()) return false
-        val props = Properties().apply {
-            load(StringReader(file.readText(Charsets.UTF_8).removePrefix("﻿")))
+        val props = try {
+            Properties().apply {
+                load(StringReader(file.readText(Charsets.UTF_8).removePrefix("﻿")))
+            }
+        } catch (e: Exception) {
+            // Např. „\u“ v textu (cesta C:\Users…) → Properties.load spadne. Bez tohohle by aplikace
+            // padala při každém startu (soubor by se nikdy nesmazal). Soubor obsahuje heslo → smazat.
+            AppLog.e("Nastavení", "config.properties nejde přečíst – ignoruji ho a mažu", e)
+            file.delete()
+            return false
         }
         val editor = prefs.edit()
         for (key in props.stringPropertyNames()) {

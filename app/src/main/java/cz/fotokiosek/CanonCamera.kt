@@ -88,7 +88,13 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
         val p = ptp ?: throw PtpUsb.PtpException("Zrcadlovka není připojená")
         drainEvents()
         if (OC_EOS_REMOTE_RELEASE_ON in supported) {
-            retryBusy { p.transaction(OC_EOS_REMOTE_RELEASE_ON, 3, 0) }.let { checked(it, "Spoušť") }
+            val shutter = retryBusy { p.transaction(OC_EOS_REMOTE_RELEASE_ON, 3, 0) }
+            if (!shutter.ok && halfPressed) {
+                // Jinak by spoušť zůstala namáčknutá a další pokus by mohl selhat taky.
+                runCatching { p.transaction(OC_EOS_REMOTE_RELEASE_OFF, 1) }
+                halfPressed = false
+            }
+            checked(shutter, "Spoušť")
             runCatching { p.transaction(OC_EOS_REMOTE_RELEASE_OFF, 3) }
             if (halfPressed) runCatching { p.transaction(OC_EOS_REMOTE_RELEASE_OFF, 1) }
             halfPressed = false

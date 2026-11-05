@@ -294,7 +294,7 @@ object SystemPrint {
         private val copies: Int,
         private val name: String,
     ) : PrintDocumentAdapter() {
-        private var pdf: PrintedPdfDocument? = null
+        private var attributes: PrintAttributes? = null
 
         override fun onLayout(
             oldAttributes: PrintAttributes?,
@@ -303,7 +303,7 @@ object SystemPrint {
             callback: LayoutResultCallback,
             extras: Bundle?,
         ) {
-            pdf = PrintedPdfDocument(context, newAttributes)
+            attributes = newAttributes
             if (cancellationSignal.isCanceled) {
                 callback.onLayoutCancelled()
                 return
@@ -321,7 +321,9 @@ object SystemPrint {
             cancellationSignal: CancellationSignal,
             callback: WriteResultCallback,
         ) {
-            val doc = pdf ?: return callback.onWriteFailed("Dokument není připravený")
+            // Android může onWrite volat víckrát (náhled, pak tisk) – PDF vždy vytvořit znovu.
+            val attrs = attributes ?: return callback.onWriteFailed("Dokument není připravený")
+            val doc = PrintedPdfDocument(context, attrs)
             try {
                 for (i in 0 until copies) {
                     if (cancellationSignal.isCanceled) {
@@ -347,7 +349,6 @@ object SystemPrint {
                 callback.onWriteFailed(e.message)
             } finally {
                 doc.close()
-                pdf = null
             }
         }
     }

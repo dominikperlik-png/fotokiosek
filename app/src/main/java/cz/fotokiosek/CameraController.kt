@@ -42,7 +42,8 @@ class CameraController(private val activity: ComponentActivity, private val sett
     /** Všechna komunikace se zrcadlovkou běží na tomhle jednom vlákně (PTP neumí souběžné příkazy). */
     private val usbDispatcher = Executors.newSingleThreadExecutor { r -> Thread(r, "canon-usb") }.asCoroutineDispatcher()
     private val scope = CoroutineScope(SupervisorJob() + usbDispatcher)
-    private var canon: CanonCamera? = null
+    /** Zapisuje vlákno canon-usb, čte i hlavní vlákno (takePhoto, applySource) → @Volatile. */
+    @Volatile private var canon: CanonCamera? = null
     private var liveViewJob: Job? = null
     @Volatile private var pauseLiveView = false
     private var permissionAsked = false
