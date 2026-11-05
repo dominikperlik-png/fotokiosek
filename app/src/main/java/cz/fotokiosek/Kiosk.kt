@@ -30,7 +30,8 @@ object Kiosk {
         val dpm = dpm(activity)
         val admin = admin(activity)
         runCatching {
-            dpm.setLockTaskPackages(admin, arrayOf(activity.packageName))
+            // Tiskový dialog Androidu musí jít otevřít i v zamčeném kiosku.
+            dpm.setLockTaskPackages(admin, arrayOf(activity.packageName, PRINT_SPOOLER))
             val home = IntentFilter(Intent.ACTION_MAIN).apply {
                 addCategory(Intent.CATEGORY_HOME)
                 addCategory(Intent.CATEGORY_DEFAULT)
@@ -64,6 +65,37 @@ object Kiosk {
         runCatching { activity.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     }
 
+    /** Dočasně pustí zámek kiosku kvůli systémovému dialogu (výběr souboru, oprávnění). */
+    fun pauseLock(activity: Activity) {
+        runCatching { activity.stopLockTask() }
+    }
+
+    /**
+     * Systémová aplikace „MTP host“ si na novějších Androidech zabírá připojené fotoaparáty
+     * a zrcadlovka pak nejde ovládat. Jako správce zařízení ji můžeme skrýt (jde vrátit).
+     * Vrací true, pokud se něco změnilo (má smysl zkusit připojení znovu).
+     */
+    fun releaseUsbFromSystem(activity: Activity): Boolean {
+        if (!isDeviceOwner(activity)) return false
+        val dpm = dpm(activity)
+        val admin = admin(activity)
+        var changed = false
+        for (pkg in USB_GRABBERS) {
+            val installed = runCatching { activity.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+            if (!installed) continue
+            runCatching {
+                if (!dpm.isApplicationHidden(admin, pkg) && dpm.setApplicationHidden(admin, pkg, true)) {
+                    AppLog.i("Kiosk", "Skryta systémová aplikace $pkg (zabírala USB fotoaparát)")
+                    changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+    private const val PRINT_SPOOLER = "com.android.printspooler"
+    private val USB_GRABBERS = listOf("com.android.mtp")
+
     /** Zruší správce zařízení – potřeba před odinstalováním aplikace. */
     fun removeDeviceOwner(activity: Activity) {
         val dpm = dpm(activity)
@@ -75,6 +107,7 @@ object Kiosk {
             runCatching { dpm.setKeyguardDisabled(admin, false) }
         }
         runCatching { dpm.setLockTaskPackages(admin, emptyArray<String>()) }
+        USB_GRABBERS.forEach { pkg -> runCatching { dpm.setApplicationHidden(admin, pkg, false) } }
         runCatching { dpm.clearDeviceOwnerApp(activity.packageName) }
     }
 }

@@ -6,6 +6,7 @@ Android aplikace, která z **bývalého automatu na e-cigarety** (Android deska 
 Součástí je skryté **menu správce** (admin) a instalační skript pro Windows, který automat „přeprogramuje“ přes adb.
 
 - Autor/majitel: Dominik (dominik.perlik@gmail.com), Windows PC, projekt leží v `C:\Users\domin\Desktop\Fotokiosek\Fotokiosek\`.
+- **GitHub:** veřejný repozitář `dominikperlik-png/fotokiosek` (větev `main`). Push → GitHub Actions sestaví podepsané APK → release `vNNN` → automat se aktualizuje tlačítkem v menu správce.
 - Aplikaci i instalaci i návod (POSTUP.html) napsal dřív Claude. Komunikace a všechny texty v aplikaci jsou **česky**.
 - Cílový uživatel návodu je laik → texty v UI a v návodu psát jednoduše, bez žargonu.
 
@@ -17,14 +18,18 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 | `instalace.ps1` + `spustit-instalaci.bat` | Instalační skript (7 kroků, viz níže) |
 | `config.example.properties` | Vzor nastavení; uživatel ho zkopíruje jako `config.properties` (je v .gitignore – obsahuje heslo) |
 | `POSTUP.html` | Kompletní návod pro uživatele (checklist kroků 1–9, ovládání, řešení problémů, vrácení, úpravy) |
-| `platform-tools/` | Přibalené adb.exe atd. |
+| `platform-tools/` | Přibalené adb.exe atd. (není v Gitu) |
+| `.github/workflows/release.yml` | CI: build `assembleRelease` + `gh release create vNNN fotokiosek.apk` |
+| `keystore.properties`, `fotokiosek-release.jks`, `github-secrets.txt` | Podpisový klíč – jen lokálně u uživatele + GitHub secrets, **nikdy do Gitu** |
+| `README.md` | Přehled pro GitHub |
 | `diagnostika.txt`, `zaloha/` | Vznikají při instalaci (v .gitignore) |
 
 ## Build
 - Gradle 8.9 (wrapper), AGP 8.7.3, Kotlin 2.0.21 + compose plugin, compose-bom 2024.12.01, Java 17.
 - `compileSdk 35`, `targetSdk 34`, **`minSdk 21`** (automaty mívají Android 5–11 → nezvyšovat minSdk bez důvodu, hlídat API úrovně přes `Build.VERSION.SDK_INT`).
-- Release je podepsaný debug klíčem, bez minifikace.
-- Závislosti: CameraX 1.4.1 (core, camera2, lifecycle, view), WorkManager 2.9.1, `com.sun.mail:android-mail` + `android-activation` 1.6.7 (SMTP), coroutines.
+- **Podpis:** release i debug se podepisují vydávacím klíčem z `keystore.properties` (lokálně) nebo z env `SIGNING_*` (CI). Bez něj debug klíč → takové APK nejde aktualizovat z GitHubu. Bez minifikace.
+- **Verze:** `versionCode = 100 + git rev-list --count HEAD` (env `VERSION_CODE` má přednost), `versionName = "1.<code>"`. `BuildConfig.GITHUB_REPO`.
+- Závislosti: CameraX 1.4.1 (core, camera2, lifecycle – **bez camera-view**), WorkManager 2.9.1, `com.sun.mail:android-mail` + `android-activation` 1.6.7 (SMTP), `com.caverock:androidsvg-aar:1.4` (SVG logo), coroutines.
 - Build nástroje u uživatele: `%LOCALAPPDATA%\FotokiosekBuild` (jdk-17.0.21.0.2+1, sdk, gradle-home):
   ```
   set JAVA_HOME=%LOCALAPPDATA%\FotokiosekBuild\jdk-17.0.21.0.2+1
@@ -33,30 +38,38 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
   gradlew.bat assembleDebug
   ```
   Výsledné APK zkopírovat jako `Fotokiosek.apk` do kořene a spustit instalaci znovu (nastavení na automatu zůstane).
-- `versionCode = 1`, `versionName = "1.0"` – při nové verzi zvednout.
+- Kód se v cloudu nedá zkompilovat (chybí Android SDK) – chyby kompilace se ukážou v GitHub Actions (souhrn běhu obsahuje řádky `e:`).
 
 ## Zdrojový kód (`app/src/main/java/cz/fotokiosek/`)
 | Soubor | Co dělá |
 |---|---|
-| `MainActivity.kt` | Jediná aktivita. Keep-screen-on, skryté systémové lišty, import `config.properties`, setup kiosku, úklid starých fotek, žádost o CAMERA, Zpět nedělá nic. Sleduje `lastTouch` (pro návrat na úvod po nečinnosti). `setContent { KioskApp(settings, camera, lastTouch) }` |
-| `KioskSettings.kt` | Nastavení v SharedPreferences `"kiosk"` přes property delegáty (`string/int/bool`). `importConfig()` načte `/sdcard/Android/data/cz.fotokiosek/files/config.properties` (UTF-8, odstraní BOM) a **soubor smaže**. Obsahuje i `sentCount` a `lastError`. |
-| `KioskCamera.kt` | CameraX: výběr kamery podle `cameraId` (jinak přední, jinak první), zrcadlení, FILL/FIT náhled, viewport ořez = fotka oříznutá jako náhled. `takePhoto()` → Bitmap otočená/zrcadlená, delší strana max **2048 px**. `cameras()` vrací seznam pro admin menu. Chyby do `error` (Compose state). USB kamery jen pokud je vidí Android (UVC knihovna zatím není). |
-| `PhotoStore.kt` | Ukládá JPEG (q 90) do `filesDir/photos/fotka_yyyyMMdd_HHmmss_SSS.jpg`, maže starší než `keepDays`. |
-| `SendPhotoWorker.kt` | WorkManager fronta: odeslání při připojení k síti, exponenciální backoff od 30 s, max 50 pokusů, tag `send-photo`. Úspěch → `sentCount++`, chyba → `lastError` s časem. |
-| `Mailer.kt` | SMTP přes JavaMail. SSL / STARTTLS / NONE, timeouty, u Gmailu odstraní mezery z app hesla. Ruční registrace mailcap (jinak „no object DCH for MIME type“ na Androidu). Bez přílohy = testovací e-mail. |
-| `EmailCheck.kt` | Validace e-mailu (regex), návrhy oprav překlepů v doménách (gmial.com→gmail.com, seznam.com→seznam.cz…). `RateLimit`: max **5 fotek na adresu za hodinu** (v paměti). |
-| `Kiosk.kt` | `KioskAdminReceiver` (DeviceAdminReceiver) + objekt `Kiosk`: když je app **device owner** → lock task, persistentní HOME, vypnutý keyguard, automaticky povolená kamera, vypnutý status bar. `openSystemScreen()` dočasně pustí do Wi-Fi/Nastavení (Domů vrátí zpět). `removeDeviceOwner()` vše vrátí (před odinstalací). |
-| `ui/KioskApp.kt` | Hlavní Compose UI + stavový automat obrazovek (viz níže). |
+| `MainActivity.kt` | Jediná aktivita. Keep-screen-on, skryté lišty, `AppLog.init`, import `config.properties` + `LogoStore.importFromExternal`, `CameraController.start()`, USB intent (`onNewIntent`), výběr loga přes `GetContent` (předtím `Kiosk.pauseLock`). `setContent { KioskApp(settings, camera, lastTouch, pickLogo) }` |
+| `KioskSettings.kt` | SharedPreferences `"kiosk"` přes delegáty (`string/int/bool`). `importConfig()` načte a **smaže** `/sdcard/Android/data/cz.fotokiosek/files/config.properties`. |
+| `CameraController.kt` | Jeden vstup pro obraz: zdroj ANDROID (KioskCamera) nebo CANON (CanonCamera). `frame: ImageBitmap?` = živý náhled, `takePhoto()`, `prefocus()`, `reconnect()`, stav zrcadlovky (`canonStatus/canonConnected/canonError`). USB attach/detach/permission receiver; žádost o oprávnění pustí lock task. Veškerá PTP komunikace na jednom vlákně `canon-usb`. Při selhání převzetí USB → `Kiosk.releaseUsbFromSystem` (skryje `com.android.mtp`) a nový pokus. |
+| `KioskCamera.kt` | CameraX **bez PreviewView**: `ImageAnalysis` (RGBA, ~1280×720, ~20 fps) + `ImageCapture` (`MINIMIZE_LATENCY`). Náhled i fotka jdou přes stejnou `orient()` (cropRect + `rotationDegrees` + zrcadlení) → **náhled má vždy stejnou orientaci jako fotka** (oprava otočeného live view). Viewport z velikosti plochy (`setViewSize`) při fill. `lastLatencyMs` = naměřená prodleva spouště. Fotka max **2048 px**. |
+| `CanonCamera.kt` | Canon EOS přes PTP: OpenSession, SetRemoteMode/EventMode (0x9114/0x9115), CaptureDestination=PC (0xD11C=4) + PCHDDCapacity, živý náhled (EVFOutputDevice 0xD1B0=2, GetViewFinderData 0x9153, JPEG z záznamu typu 1), `halfPress()` (RemoteReleaseOn 1), `capture()` (RemoteReleaseOn/Off 3 nebo RemoteRelease 0x910F → GetEvent 0xC181/0xC1A7 → GetObjectInfo/GetObject → TransferComplete). `decode()` = zmenšení + `canon_rotation` + zrcadlení. Netestováno na skutečném těle – při problémech koukni do logu. |
+| `PtpUsb.kt` | PTP transport přes USB bulk (kontejnery, čtení po 16 kB kvůli Androidu < 9, ZLP), `claimInterface(force=true)`. |
+| `PhotoStore.kt` | JPEG (q 90) do `filesDir/photos/`, mazání po `keepDays`. |
+| `SendPhotoWorker.kt` | WorkManager fronta, **bez síťové podmínky** (na některých deskách se nikdy nesplní), LINEAR backoff 30 s, max 200 pokusů, tag `send-photo`. Chyba → `lastError` přes `MailDiagnostics.explain`. |
+| `Mailer.kt` | SMTP přes JavaMail: `account()`, `session(settings, debugOut)` (SSL/STARTTLS/NONE, `mail.smtp.localhost`, `smtp_trust_all` → `ssl.trust=*`), `send()` s explicitním `connect` + `sendMessage`. Mailcap registrace ručně. |
+| `MailDiagnostics.kt` | Test pošty po krocích: nastavení → DNS → TCP → TLS (u SSL) → přihlášení → (odeslání). `Report(steps, protocolLog)`; `explain(e)` = česká příčina + rada (heslo pro aplikace, certifikát/čas, port×zabezpečení, timeout…). |
+| `AppLog.kt` | Log do `filesDir/logs/fotokiosek.log` (256 kB, rotace), `tail()`, `causes()`. Zobrazení v adminu. Hesla se nelogují (`mail.debug.auth=false`). |
+| `Printing.kt` | `IppClient` (vlastní IPP: Print-Job s `image/jpeg`, `copies`, `print-scaling=fill`; Get-Printer-Attributes pro test; `normalize()` IP→`ipp://IP:631/ipp/print`), `PrinterDiscovery` (NSD `_ipp._tcp`, atribut `rp`), `SystemPrint` (PrintManager + PDF s N stránkami = N kopií). |
+| `LogoStore.kt` | Logo jako PNG v `filesDir/branding/logo.png` (přežije aktualizaci). Import z Uri (PNG/JPG/WEBP/SVG přes AndroidSVG), z `externalFiles/logo.*` (instalace), `applyToPhoto()` (roh `logo_position`, `logo_size` %). `version` = Compose state pro překreslení. |
+| `Updater.kt` | GitHub API `releases/latest` → asset `.apk` → stažení (ruční redirecty, token jen na GitHub) → kontrola balíčku → `PackageInstaller` session (`USER_ACTION_NOT_REQUIRED`). `UpdateReceiver`: výsledek instalace + `MY_PACKAGE_REPLACED` → spustí MainActivity. |
+| `EmailCheck.kt` | Validace e-mailu, opravy překlepů domén. `RateLimit`: max **5 fotek na adresu za hodinu**. |
+| `Kiosk.kt` | Device owner: lock task (+ `com.android.printspooler` v allowlistu), persistentní HOME, keyguard, kamera, status bar. `pauseLock()`, `openSystemScreen()`, `releaseUsbFromSystem()`, `removeDeviceOwner()` (vrací i skrytý MTP host). |
+| `ui/KioskApp.kt` | Hlavní Compose UI + stavový automat obrazovek (viz níže), `LivePreview`, `CopiesDialog`, `Notice`. |
 | `ui/EmailScreen.kt` | Zadání e-mailu **vlastní on-screen klávesnicí** (systémová klávesnice na automatech bývá nepoužitelná). |
 | `ui/AdminScreen.kt` | `AdminCorner` (skrytý roh), `PinPad`, `AdminScreen` (menu správce). |
 | `ui/Common.kt` | Barvy `Accent` #FFB300 (oranžovo-žlutá), `Dark` #141414, `KeyColor` #2C2C2C; `KioskTheme` (tmavé Material3); `BigButton` (velké zaoblené tlačítko, min. 84 dp, text 28 sp; `primary=false` = průhledné bílé). |
 
 ### UI – obrazovky (`sealed interface Screen` v KioskApp.kt)
 `Idle` → `Countdown(n)` → `Review(photo)` → `Email(photo, email)` → `Confirm(photo, email)` → `Sent`; plus `Admin`.
-- **Živý náhled kamery** (`PreviewView`, COMPATIBLE mode) běží pořád pod vším, ostatní obrazovky ho překrývají.
-- **Idle:** uvítací text nahoře (44 sp, poloprůhledné pozadí), dole pulzující kulaté tlačítko **VYFOTIT** (190 dp). Při chybě kamery místo tlačítka červený box s chybou + nápověda pro správce.
-- **Countdown:** velká čísla (240 sp) podle `countdown` (0–10), pak „Úsměv!“, bílý záblesk (600 ms), `camera.takePhoto()`. Chyba → hláška „Fotku se nepodařilo pořídit…“ a zpět na Idle.
-- **Review:** „Jak se ti líbí?“, fotka, tlačítka **Znovu** / **Poslat na e-mail**.
+- **Živý náhled** (`LivePreview`: `Image(camera.frame)`, Crop při fill, jinak Fit) běží pořád pod vším, ostatní obrazovky ho překrývají. Nic se v UI neotáčí – snímky jsou už orientované.
+- **Idle:** logo vpravo nahoře (`logo_on_screen`), uvítací text nahoře (44 sp, poloprůhledné pozadí), dole pulzující kulaté tlačítko **VYFOTIT** (190 dp). Při chybě kamery místo tlačítka červený box s chybou + nápověda pro správce.
+- **Countdown:** časování podle absolutního konce `end`: 800 ms před koncem `camera.prefocus()` (Canon namáčkne spoušť), `shutter_lead_ms` před koncem se spustí `takePhoto()` (async → `Result`, chyba nesmí shodit scope), v čase `end` „Úsměv!“ + záblesk. Fotka → `LogoStore.applyToPhoto` → Review. Chyba → hláška a zpět na Idle.
+- **Review:** „Jak se ti líbí?“, fotka (už s logem), tlačítka **Znovu** / **Vytisknout** (jen když `print_enabled`) / **Poslat na e-mail**. Vytisknout → `CopiesDialog` (− / +, 1…`print_max_copies`) → IPP tisk na pozadí nebo systémový dialog; výsledek jako zelená/červená `Notice`.
 - **Email:** pole s kurzorem, placeholder `tvuj@email.cz`; klávesnice: řada domén (@gmail.com, @seznam.cz, @email.cz, @centrum.cz, @icloud.com – nahradí vše za @), čísla + QWERTZ bez diakritiky, řada `@ . - _ .cz .com ⌫`. Max 80 znaků, jen jeden `@`. Návrh opravy překlepu („Nemyslel(a) jsi …? Klepni sem.“). Validace při **Pokračovat** (trim + lowercase), jinak „Tohle nevypadá jako e-mailová adresa.“ Dole poznámka „E-mail použijeme jen k odeslání této fotky.“
 - **Confirm:** „Pošleme fotku na: <adresa> – Je adresa správně?“ → **Opravit** / **Ano, poslat**.
 - **send():** `RateLimit.allow` (jinak hláška a zůstane na Confirm) → Sent; na IO vlákně `PhotoStore.save` + `SendPhotoWorker.enqueue` (chyba uložení → `lastError`).
@@ -65,21 +78,22 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 - **Vstup do správy:** neviditelný čtverec 110 dp vlevo nahoře, 5 klepnutí do 3 s → `PinPad` (číselník, max 8 číslic, „Špatný PIN“) → `Screen.Admin`. Roh není aktivní, když je otevřený Admin.
 
 ### Menu správce (AdminScreen)
-- Stavový box: device owner ano/NE, kamera OK (id) / chyba, počet ve frontě (WorkManager tag `send-photo`, nedokončené), odesláno celkem, poslední chyba.
-- **Kamera:** radio seznam z `camera.cameras()`, přepínače Zrcadlit a Náhled přes celou obrazovku.
-- **Kiosek:** uvítací text, odpočet (0–10), nečinnost (10–600 s), mazání fotek (1–365 dní), PIN (jen číslice, uloží se jen když má ≥ 4).
-- **E-mail (SMTP):** předvolby Gmail/Seznam/Brevo, server, port, SSL/STARTTLS/bez šifrování, uživatel, heslo (skryté), adresa a jméno odesílatele, předmět, text. Tlačítko **Uložit a poslat testovací e-mail** – pošle test bez přílohy **na vlastní adresu kiosku** (from_address, jinak smtp_user) a ukáže výsledek/chybu.
-- **Systém:** Wi-Fi, Nastavení Androidu (`Kiosk.openSystemScreen`), „Odebrat správce zařízení (před odinstalací)“ s potvrzovacím dialogem (jen když je device owner).
-- **Zavřít** (bez uložení) / **Uložit** (uloží a zavře). `save()` zapíše všechno do `KioskSettings` a znovu nabinduje kameru.
-- Textová pole v adminu používají systémovou klávesnici (na rozdíl od zákaznické obrazovky).
+Sekce: stavový box (verze, device owner, `camera.statusLine`, fronta, odesláno, vytištěno, poslední chyba) → **Kamera** (zdroj auto/android/canon, stav zrcadlovky s tečkou + **Znovu připojit**, kamery Androidu, otočení zrcadlovky, zrcadlení, fill, předstih spouště + naměřená prodleva) → **Kiosek** → **Logo** (náhled, nahrát/nahradit/smazat, na obrazovce, na fotce, roh, velikost) → **Tisk** (povolit, režim ipp/system, vyhledat, výběr, ruční adresa, otestovat, max kopií) → **E-mail** (předvolby, pole, tolerovat certifikát, **Otestovat připojení k mailu** / **…a poslat testovací e-mail**, výsledky po krocích s radou, komunikace se serverem) → **Aktualizace** (verze, nová verze na GitHubu, **Aktualizovat aplikaci** s průběhem, repo, token) → **Log** (zobrazit/smazat) → **Systém**. Zavřít / Uložit. `save()` zapíše vše a zavolá `camera.applySettings()`.
+Pomocné komponenty: `ChoiceRow` (čipy), `Section`, `SwitchRow`, `Field`.
 
 Resources: `strings.xml` (jen `app_name`), `themes.xml` (`Theme.Material.NoActionBar.Fullscreen`, černé pozadí), `drawable/ic_launcher.xml`, `xml/device_admin.xml` (prázdné policies).
 
 Manifest: oprávnění CAMERA, INTERNET, ACCESS_NETWORK_STATE; `camera.any` není povinná; MainActivity je LAUNCHER **i HOME** (singleTask), `allowBackup=false`, `largeHeap=true`.
 
 ## Nastavení (klíče v config.properties = klíče v SharedPreferences)
-`smtp_host` (smtp.gmail.com), `smtp_port` (465), `smtp_security` (SSL|STARTTLS|NONE), `smtp_user`, `smtp_password`, `from_address` (prázdné = smtp_user), `from_name` (Fotokoutek), `subject`, `body` (`\n` = nový řádek), `welcome_text`, `pin` (1234), `countdown` (3), `idle_timeout` (45 s), `keep_days` (7), `mirror` (true), `fill_screen` (true), `camera_id` (""). Interní: `sent_count`, `last_error`.
-Když přidáváš nové nastavení: delegát v `KioskSettings`, položka v `AdminScreen`, řádek v `config.example.properties` a zmínka v `POSTUP.html`.
+E-mail: `smtp_host` (smtp.gmail.com), `smtp_port` (465), `smtp_security` (SSL|STARTTLS|NONE), `smtp_user`, `smtp_password`, `smtp_trust_all` (false), `from_address`, `from_name`, `subject`, `body` (`\n`).
+Kiosek: `welcome_text`, `pin` (1234), `countdown` (3), `idle_timeout` (45), `keep_days` (7), `shutter_lead_ms` (250).
+Kamera: `camera_source` (auto|android|canon), `camera_id`, `mirror` (true), `fill_screen` (true), `canon_rotation` (0).
+Tisk: `print_enabled` (false), `print_mode` (ipp|system), `printer_url`, `printer_name`, `print_max_copies` (5).
+Logo: `logo_on_screen`, `logo_on_photo` (true), `logo_position` (TL|TR|BL|BR, BR), `logo_size` (18 %). Soubor loga ≠ nastavení (LogoStore).
+Aktualizace: `github_repo` (dominikperlik-png/fotokiosek), `github_token` (jen soukromé repo).
+Interní: `sent_count`, `print_count`, `last_error`.
+Když přidáváš nové nastavení: delegát v `KioskSettings`, položka v `AdminScreen` (state + `save()`), řádek v `config.example.properties` a zmínka v `POSTUP.html`.
 
 SMTP předvolby: Gmail `smtp.gmail.com:465 SSL` (heslo pro aplikace, ~500/den), Seznam `smtp.seznam.cz:465 SSL`, Brevo `smtp-relay.brevo.com:587 STARTTLS` (300/den zdarma).
 
@@ -90,13 +104,15 @@ SMTP předvolby: Gmail `smtp.gmail.com:465 SSL` (heslo pro aplikace, ~500/den), 
 4. Výběr a vypnutí původních aplikací (`pm disable-user`, fallback `pm uninstall -k --user 0`), APK záloha do `zaloha/`.
 5. `adb install -r [-g]` APK.
 6. `dpm set-device-owner cz.fotokiosek/.KioskAdminReceiver` (selže s přihlášeným účtem nebo jiným ownerem).
-7. Push `config.properties` do `/sdcard/Android/data/cz.fotokiosek/files/`, restart aplikace, volitelně reboot automatu.
+7. Push `config.properties` a `logo.*` do `/sdcard/Android/data/cz.fotokiosek/files/`, restart aplikace, volitelně reboot automatu.
+
+Krok 5 nabízí stažení `releases/latest/download/fotokiosek.apk`; při `UPDATE_INCOMPATIBLE` (starý podpis) vysvětlí jednorázovou přeinstalaci (nejdřív v adminu „Odebrat správce zařízení“).
 
 ## Známé otevřené věci / možná budoucí práce
-- Podpora USB (UVC) kamer, které Android sám nevidí.
-- Nastavení otočení obrazu (pro kamery bokem / vzhůru nohama).
-- Logo / rámeček na fotce, jiné texty.
-- Neznámý hardware automatu – reálná data budou v `diagnostika.txt`, až ho uživatel pošle.
+- Canon PTP, IPP tisk, aktualizace a nový náhled nejsou otestované na skutečném hardwaru automatu – první ostré nasazení sledovat přes Log v adminu.
+- Starší verze (před GitHubem) byla podepsaná jiným klíčem → jednou ruční přeinstalace.
+- USB (UVC) webkamery, které Android sám nevidí.
+- Neznámý hardware automatu – reálná data budou v `diagnostika.txt`.
 
 ## Zásady pro úpravy
 - Zachovat kompatibilitu s Androidem 5 (API 21); novější API obalit kontrolou verze a `runCatching` jako v `Kiosk.kt`.

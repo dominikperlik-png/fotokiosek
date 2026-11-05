@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Canon (vendor 0x04A9 = 1193), fotoaparáty s rozhraním Still Image (třída 6, PTP) -->
+    <usb-device vendor-id="1193" class="6" />
+    <!-- Některá těla hlásí třídu až na úrovni rozhraní – stačí výrobce -->
+    <usb-device vendor-id="1193" />
+</resources>

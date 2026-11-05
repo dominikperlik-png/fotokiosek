@@ -1,0 +1,123 @@
+package cz.fotokiosek
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.net.Uri
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import com.caverock.androidsvg.SVG
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import kotlin.math.max
+
+/**
+ * Vlastní logo. Ukládá se jako PNG (zachová průhlednost) do interní paměti aplikace:
+ * přežije restart i aktualizaci aplikace a do Gitu se nikdy nedostane.
+ */
+object LogoStore {
+    private const val TAG = "Logo"
+    private const val MAX_SIDE = 1600
+    private var cached: Bitmap? = null
+
+    /** Zvyšuje se při každé změně loga – UI podle toho překreslí. */
+    var version by mutableIntStateOf(0)
+        private set
+
+    private fun file(context: Context) = File(File(context.filesDir, "branding").apply { mkdirs() }, "logo.png")
+
+    fun exists(context: Context) = file(context).exists()
+
+    fun load(context: Context): Bitmap? {
+        cached?.let { return it }
+        val f = file(context)
+        if (!f.exists()) return null
+        return BitmapFactory.decodeFile(f.absolutePath)?.also { cached = it }
+    }
+
+    /** Nahraje logo z vybraného souboru (PNG, JPG, WEBP nebo SVG). */
+    fun import(context: Context, uri: Uri): Result<Unit> = runCatching {
+        val mime = context.contentResolver.getType(uri).orEmpty()
+        val name = uri.lastPathSegment.orEmpty().lowercase()
+        val isSvg = mime.contains("svg") || name.endsWith(".svg")
+        val bitmap = context.contentResolver.openInputStream(uri)?.use { decode(it, isSvg) }
+            ?: throw IllegalStateException("Soubor nejde otevřít")
+        save(context, bitmap)
+    }.onFailure { AppLog.e(TAG, "Nahrání loga z $uri", it) }
+
+    /**
+     * Logo nahrané instalací (adb push do /sdcard/Android/data/cz.fotokiosek/files/logo.*).
+     * Po načtení se soubor smaže.
+     */
+    fun importFromExternal(context: Context) {
+        val dir = context.getExternalFilesDir(null) ?: return
+        val f = listOf("logo.png", "logo.jpg", "logo.jpeg", "logo.webp", "logo.svg").map { File(dir, it) }.firstOrNull { it.exists() } ?: return
+        runCatching {
+            val bitmap = f.inputStream().use { decode(it, f.name.endsWith(".svg")) }
+            save(context, bitmap)
+            f.delete()
+            AppLog.i(TAG, "Logo načteno z ${f.name}")
+        }.onFailure { AppLog.e(TAG, "Logo z ${f.name}", it) }
+    }
+
+    fun delete(context: Context) {
+        file(context).delete()
+        cached = null
+        version++
+        AppLog.i(TAG, "Logo smazáno")
+    }
+
+    private fun save(context: Context, bitmap: Bitmap) {
+        val tmp = File(file(context).parentFile, "logo.tmp")
+        FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        tmp.renameTo(file(context))
+        cached = bitmap
+        version++
+        AppLog.i(TAG, "Logo uloženo (${bitmap.width}×${bitmap.height})")
+    }
+
+    private fun decode(input: InputStream, svg: Boolean): Bitmap {
+        if (svg) {
+            val doc = SVG.getFromInputStream(input)
+            val box = doc.documentViewBox
+            var w = doc.documentWidth.takeIf { it > 0 } ?: box?.width() ?: 512f
+            var h = doc.documentHeight.takeIf { it > 0 } ?: box?.height() ?: 512f
+            val scale = 1024f / max(w, h)
+            w *= scale
+            h *= scale
+            doc.setDocumentWidth(w)
+            doc.setDocumentHeight(h)
+            val bmp = Bitmap.createBitmap(w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+            doc.renderToCanvas(Canvas(bmp))
+            return bmp
+        }
+        val bytes = input.readBytes()
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0) throw IllegalArgumentException("Nepodporovaný formát obrázku (použij PNG, JPG nebo SVG)")
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_SIDE) sample *= 2
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?: throw IllegalArgumentException("Obrázek nejde načíst")
+    }
+
+    /** Vrátí kopii fotky s logem v rohu (podle nastavení). Bez loga vrací původní fotku. */
+    fun applyToPhoto(context: Context, settings: KioskSettings, photo: Bitmap): Bitmap {
+        if (!settings.logoOnPhoto) return photo
+        val logo = load(context) ?: return photo
+        val result = photo.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(result)
+        val targetW = result.width * settings.logoSize.coerceIn(5, 60) / 100f
+        val targetH = targetW * logo.height / logo.width
+        val margin = result.width * 0.03f
+        val left = if (settings.logoPosition.endsWith("L")) margin else result.width - margin - targetW
+        val top = if (settings.logoPosition.startsWith("T")) margin else result.height - margin - targetH
+        canvas.drawBitmap(logo, null, RectF(left, top, left + targetW, top + targetH), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
+        return result
+    }
+}

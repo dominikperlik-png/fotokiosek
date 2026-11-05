@@ -1,12 +1,15 @@
 package cz.fotokiosek.ui
 
 import android.app.Activity
+import android.net.Uri
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,11 +23,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -32,10 +37,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -45,8 +52,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,12 +64,19 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.work.WorkManager
+import cz.fotokiosek.AppLog
+import cz.fotokiosek.CameraController
+import cz.fotokiosek.FoundPrinter
+import cz.fotokiosek.IppClient
 import cz.fotokiosek.Kiosk
-import cz.fotokiosek.KioskCamera
 import cz.fotokiosek.KioskSettings
-import cz.fotokiosek.Mailer
+import cz.fotokiosek.LogoStore
+import cz.fotokiosek.MailDiagnostics
+import cz.fotokiosek.PrinterDiscovery
 import cz.fotokiosek.SendPhotoWorker
+import cz.fotokiosek.Updater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -145,36 +162,73 @@ fun PinPad(onCancel: () -> Unit, onEnter: (String) -> Boolean) {
 }
 
 @Composable
-fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Unit) {
+fun AdminScreen(
+    settings: KioskSettings,
+    camera: CameraController,
+    pickLogo: ((Uri?) -> Unit) -> Unit,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
     val activity = context as Activity
     val scope = rememberCoroutineScope()
     BackHandler(onBack = onClose)
 
+    // --- kamera ---
+    var cameraSource by remember { mutableStateOf(settings.cameraSource) }
     var cameraId by remember { mutableStateOf(settings.cameraId) }
     var mirror by remember { mutableStateOf(settings.mirror) }
     var fill by remember { mutableStateOf(settings.fillScreen) }
+    var canonRotation by remember { mutableIntStateOf(settings.canonRotation) }
+    var shutterLead by remember { mutableStateOf(settings.shutterLeadMs.toString()) }
+    // --- kiosek ---
     var welcome by remember { mutableStateOf(settings.welcomeText) }
     var countdown by remember { mutableStateOf(settings.countdown.toString()) }
     var idleTimeout by remember { mutableStateOf(settings.idleTimeout.toString()) }
     var keepDays by remember { mutableStateOf(settings.keepDays.toString()) }
     var pin by remember { mutableStateOf(settings.pin) }
-
+    // --- logo ---
+    var logoOnScreen by remember { mutableStateOf(settings.logoOnScreen) }
+    var logoOnPhoto by remember { mutableStateOf(settings.logoOnPhoto) }
+    var logoPosition by remember { mutableStateOf(settings.logoPosition) }
+    var logoSize by remember { mutableStateOf(settings.logoSize.toString()) }
+    var logoMessage by remember { mutableStateOf<String?>(null) }
+    // --- tisk ---
+    var printEnabled by remember { mutableStateOf(settings.printEnabled) }
+    var printMode by remember { mutableStateOf(settings.printMode) }
+    var printerUrl by remember { mutableStateOf(settings.printerUrl) }
+    var printerName by remember { mutableStateOf(settings.printerName) }
+    var printMaxCopies by remember { mutableStateOf(settings.printMaxCopies.toString()) }
+    var printerTest by remember { mutableStateOf<String?>(null) }
+    val foundPrinters = remember { mutableStateListOf<FoundPrinter>() }
+    var searching by remember { mutableStateOf(false) }
+    // --- e-mail ---
     var host by remember { mutableStateOf(settings.smtpHost) }
     var port by remember { mutableStateOf(settings.smtpPort.toString()) }
     var security by remember { mutableStateOf(settings.smtpSecurity) }
     var user by remember { mutableStateOf(settings.smtpUser) }
     var password by remember { mutableStateOf(settings.smtpPassword) }
+    var trustAll by remember { mutableStateOf(settings.smtpTrustAll) }
     var fromAddress by remember { mutableStateOf(settings.fromAddress) }
     var fromName by remember { mutableStateOf(settings.fromName) }
     var subject by remember { mutableStateOf(settings.subject) }
     var body by remember { mutableStateOf(settings.body) }
-
+    var mailTesting by remember { mutableStateOf(false) }
+    var mailReport by remember { mutableStateOf<MailDiagnostics.Report?>(null) }
+    var showProtocol by remember { mutableStateOf(false) }
+    // --- aktualizace ---
+    var githubRepo by remember { mutableStateOf(settings.githubRepo) }
+    var githubToken by remember { mutableStateOf(settings.githubToken) }
+    var latest by remember { mutableStateOf<Updater.Release?>(null) }
+    // --- ostatní ---
     var pending by remember { mutableStateOf<Int?>(null) }
-    var testResult by remember { mutableStateOf<String?>(null) }
     var confirmRemoveOwner by remember { mutableStateOf(false) }
-    val cameras = remember { camera.cameras() }
+    var showLog by remember { mutableStateOf(false) }
+    var logText by remember { mutableStateOf("") }
+    val cameras = remember { camera.android.cameras() }
     val isOwner = remember { Kiosk.isDeviceOwner(context) }
+    val discovery = remember { PrinterDiscovery(context) }
+
+    DisposableEffect(Unit) { onDispose { discovery.stop() } }
 
     LaunchedEffect(Unit) {
         pending = withContext(Dispatchers.IO) {
@@ -182,31 +236,86 @@ fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Uni
                 WorkManager.getInstance(context).getWorkInfosByTag(SendPhotoWorker.TAG).get().count { !it.state.isFinished }
             }.getOrNull()
         }
+        // Tichá kontrola, jestli je na GitHubu novější verze
+        if (!Updater.busy) {
+            latest = withContext(Dispatchers.IO) { runCatching { Updater.latest(settings) }.getOrNull() }
+        }
     }
 
     fun save() {
+        settings.cameraSource = cameraSource
         settings.cameraId = cameraId
         settings.mirror = mirror
         settings.fillScreen = fill
+        settings.canonRotation = canonRotation
+        settings.shutterLeadMs = shutterLead.toIntOrNull()?.coerceIn(0, 900) ?: 250
         settings.welcomeText = welcome
         settings.countdown = countdown.toIntOrNull()?.coerceIn(0, 10) ?: 3
         settings.idleTimeout = idleTimeout.toIntOrNull()?.coerceIn(10, 600) ?: 45
         settings.keepDays = keepDays.toIntOrNull()?.coerceIn(1, 365) ?: 7
         if (pin.length >= 4) settings.pin = pin
+        settings.logoOnScreen = logoOnScreen
+        settings.logoOnPhoto = logoOnPhoto
+        settings.logoPosition = logoPosition
+        settings.logoSize = logoSize.toIntOrNull()?.coerceIn(5, 60) ?: 18
+        settings.printEnabled = printEnabled
+        settings.printMode = printMode
+        settings.printerUrl = IppClient.normalize(printerUrl)
+        settings.printerName = printerName
+        settings.printMaxCopies = printMaxCopies.toIntOrNull()?.coerceIn(1, 20) ?: 5
         settings.smtpHost = host.trim()
         settings.smtpPort = port.toIntOrNull() ?: 465
         settings.smtpSecurity = security
         settings.smtpUser = user.trim()
         settings.smtpPassword = password
+        settings.smtpTrustAll = trustAll
         settings.fromAddress = fromAddress.trim()
         settings.fromName = fromName
         settings.subject = subject
         settings.body = body
+        settings.githubRepo = githubRepo.trim()
+        settings.githubToken = githubToken.trim()
+        camera.applySettings()
+        AppLog.i("Správa", "Nastavení uloženo")
+    }
 
-        camera.cameraId = cameraId
-        camera.mirror = mirror
-        camera.fill = fill
-        camera.bind()
+    fun testMail(send: Boolean) {
+        save()
+        mailTesting = true
+        mailReport = null
+        val to = settings.fromAddress.ifEmpty { settings.smtpUser }
+        scope.launch {
+            mailReport = withContext(Dispatchers.IO) { MailDiagnostics.run(settings, if (send && to.isNotEmpty()) to else null) }
+            mailTesting = false
+        }
+    }
+
+    fun runUpdate() {
+        save()
+        Updater.busy = true
+        Updater.progress = 0f
+        Updater.status = "Zjišťuji nejnovější verzi…"
+        scope.launch {
+            try {
+                val release = withContext(Dispatchers.IO) { Updater.latest(settings) }
+                latest = release
+                if (release.versionCode <= Updater.currentVersion) {
+                    Updater.status = "Máš nejnovější verzi (${Updater.currentName})."
+                    Updater.busy = false
+                    return@launch
+                }
+                Updater.status = "Stahuji ${release.title}…"
+                val apk = withContext(Dispatchers.IO) {
+                    Updater.download(context, settings, release) { p -> scope.launch(Dispatchers.Main) { Updater.progress = p } }
+                }
+                Updater.status = "Instaluji… aplikace se za chvíli sama restartuje."
+                withContext(Dispatchers.IO) { Updater.install(context, apk) }
+            } catch (e: Exception) {
+                AppLog.e("Aktualizace", "Aktualizace selhala", e)
+                Updater.status = "Aktualizace selhala: ${e.message}"
+                Updater.busy = false
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Dark), contentAlignment = Alignment.TopCenter) {
@@ -221,31 +330,76 @@ fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Uni
             Text("Správa fotokiosku", fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text(
                 buildString {
+                    append("Verze: ${Updater.currentName}\n")
                     append("Správce zařízení (zamčený kiosek): ${if (isOwner) "ano" else "NE"}\n")
-                    append("Kamera: ${camera.error ?: "OK (${camera.activeId})"}\n")
-                    append("Ve frontě k odeslání: ${pending ?: "?"}   Odesláno celkem: ${settings.sentCount}")
+                    append("${camera.statusLine}\n")
+                    append("Ve frontě k odeslání: ${pending ?: "?"}   Odesláno celkem: ${settings.sentCount}   Vytištěno: ${settings.printCount}")
                     if (settings.lastError.isNotEmpty()) append("\nPoslední chyba: ${settings.lastError}")
                 },
                 fontSize = 18.sp,
                 modifier = Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
             )
 
+            // ---------------------------------------------------------------- Kamera
             Section("Kamera")
-            if (cameras.isEmpty()) {
-                Text("Android nevidí žádnou kameru. Pošli výstup diagnostiky (diagnostika.txt).", color = Color(0xFFFF6E6E))
-            }
-            cameras.forEach { (id, label) ->
-                Row(
-                    Modifier.fillMaxWidth().clickable { cameraId = id },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = id == cameraId.ifEmpty { camera.activeId }, onClick = { cameraId = id })
-                    Text(label, fontSize = 20.sp)
+            Text("Zdroj obrazu", fontSize = 20.sp)
+            ChoiceRow(
+                listOf("auto" to "Automaticky", "android" to "Kamera Androidu", "canon" to "Zrcadlovka Canon"),
+                cameraSource,
+            ) { cameraSource = it }
+
+            Row(
+                Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.size(18.dp).clip(CircleShape)
+                        .background(if (camera.canonConnected) Color(0xFF43A047) else Color(0xFFE53935))
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Zrcadlovka: ${camera.canonStatus}", fontSize = 18.sp)
+                    if (!camera.canonConnected) {
+                        Text(
+                            "Fotoaparát zapni, dej do režimu foto (M/Av/Tv/P), v menu vypni Wi-Fi a automatické vypínání a připoj USB kabelem.",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                    }
                 }
+                OutlinedButton(onClick = { save(); camera.reconnect() }) { Text("Znovu připojit") }
+            }
+
+            if (cameraSource != "canon") {
+                Text("Kamera Androidu", fontSize = 20.sp)
+                if (cameras.isEmpty()) {
+                    Text("Android nevidí žádnou kameru. Pošli výstup diagnostiky (diagnostika.txt).", color = Color(0xFFFF6E6E))
+                }
+                cameras.forEach { (id, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { cameraId = id },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = id == cameraId.ifEmpty { camera.android.activeId }, onClick = { cameraId = id })
+                        Text(label, fontSize = 20.sp)
+                    }
+                }
+            }
+            if (cameraSource != "android") {
+                Text("Otočení obrazu zrcadlovky", fontSize = 20.sp)
+                ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, canonRotation.toString()) { canonRotation = it.toInt() }
             }
             SwitchRow("Zrcadlit (jako zrcadlo)", mirror) { mirror = it }
             SwitchRow("Náhled přes celou obrazovku (fotka se ořízne stejně)", fill) { fill = it }
+            Field("Předstih spouště v ms (0–900)", shutterLead, number = true) { shutterLead = it.filter(Char::isDigit) }
+            Text(
+                "Spoušť se pustí o tolik dřív, aby fotka vznikla přesně s nápisem „Úsměv!“." +
+                    (camera.android.lastLatencyMs.takeIf { it > 0 }?.let { " Poslední naměřená prodleva kamery: $it ms." } ?: ""),
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
 
+            // ---------------------------------------------------------------- Kiosek
             Section("Kiosek")
             Field("Uvítací text", welcome) { welcome = it }
             Field("Odpočet (sekundy)", countdown, number = true) { countdown = it }
@@ -253,6 +407,123 @@ fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Uni
             Field("Mazat fotky z kiosku po (dnech)", keepDays, number = true) { keepDays = it }
             Field("PIN správce (min. 4 číslice)", pin, number = true) { pin = it.filter(Char::isDigit) }
 
+            // ---------------------------------------------------------------- Logo
+            Section("Logo")
+            val logoVersion = LogoStore.version
+            val logo = remember(logoVersion) { LogoStore.load(context)?.asImageBitmap() }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(
+                    Modifier.size(width = 220.dp, height = 130.dp)
+                        .background(Color(0xFF555555), RoundedCornerShape(12.dp))
+                        .padding(8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (logo != null) {
+                        Image(bitmap = logo, contentDescription = "Náhled loga", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                    } else {
+                        Text("bez loga", color = Color.White.copy(alpha = 0.6f))
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        logoMessage = null
+                        pickLogo { uri ->
+                            if (uri != null) {
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { LogoStore.import(context, uri) }
+                                    logoMessage = r.fold({ "Logo uloženo ✔" }, { "Logo nejde načíst: ${it.message}" })
+                                }
+                            }
+                        }
+                    }) { Text(if (logo == null) "Nahrát logo" else "Nahradit logo") }
+                    if (logo != null) {
+                        OutlinedButton(onClick = { LogoStore.delete(context); logoMessage = "Logo smazáno" }) { Text("Smazat logo") }
+                    }
+                }
+            }
+            Text(
+                "PNG s průhledností, JPG nebo SVG. Otevře se výběr souboru Androidu (např. z USB flashky nebo Stažených souborů). Logo jde nahrát i instalací: soubor logo.png vedle instalace.ps1.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            logoMessage?.let { Text(it, fontSize = 18.sp) }
+            SwitchRow("Logo na úvodní obrazovce", logoOnScreen) { logoOnScreen = it }
+            SwitchRow("Logo na fotce (e-mail i tisk)", logoOnPhoto) { logoOnPhoto = it }
+            if (logoOnPhoto) {
+                Text("Umístění na fotce", fontSize = 20.sp)
+                ChoiceRow(
+                    listOf("TL" to "vlevo nahoře", "TR" to "vpravo nahoře", "BL" to "vlevo dole", "BR" to "vpravo dole"),
+                    logoPosition,
+                ) { logoPosition = it }
+                Field("Velikost loga (% šířky fotky, 5–60)", logoSize, number = true) { logoSize = it.filter(Char::isDigit) }
+            }
+
+            // ---------------------------------------------------------------- Tisk
+            Section("Tisk")
+            SwitchRow("Povolit tisk (tlačítko „Vytisknout“ u fotky)", printEnabled) { printEnabled = it }
+            if (printEnabled) {
+                ChoiceRow(
+                    listOf("ipp" to "Síťová tiskárna (doporučeno)", "system" to "Systémový tisk Androidu"),
+                    printMode,
+                ) { printMode = it }
+                if (printMode == "ipp") {
+                    Text(
+                        "Tiskárna musí být ve stejné síti jako automat (Wi-Fi / kabel). Tiskne se rovnou, bez dialogů.",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(onClick = {
+                            foundPrinters.clear()
+                            searching = true
+                            discovery.start { p ->
+                                scope.launch(Dispatchers.Main) { if (foundPrinters.none { it.url == p.url }) foundPrinters += p }
+                            }
+                            scope.launch {
+                                delay(8000)
+                                discovery.stop()
+                                searching = false
+                            }
+                        }, enabled = !searching) { Text(if (searching) "Hledám…" else "Vyhledat tiskárny") }
+                        OutlinedButton(onClick = {
+                            printerTest = "Zkouším tiskárnu…"
+                            val url = IppClient.normalize(printerUrl)
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) { IppClient.test(url) }
+                                printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                            }
+                        }, enabled = printerUrl.isNotBlank()) { Text("Otestovat tiskárnu") }
+                    }
+                    if (searching && foundPrinters.isEmpty()) Text("Hledám tiskárny v síti…", fontSize = 16.sp)
+                    if (!searching && foundPrinters.isEmpty() && printerName.isEmpty() && printerUrl.isEmpty()) {
+                        Text("Žádnou tiskárnu jsem zatím nenašel – zadej její IP adresu ručně.", fontSize = 16.sp)
+                    }
+                    foundPrinters.forEach { p ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { printerUrl = p.url; printerName = p.name },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = printerUrl == p.url, onClick = { printerUrl = p.url; printerName = p.name })
+                            Column {
+                                Text(p.name, fontSize = 20.sp)
+                                Text(p.url, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                            }
+                        }
+                    }
+                    if (printerName.isNotEmpty()) Text("Vybraná tiskárna: $printerName", fontSize = 18.sp)
+                    Field("Adresa tiskárny (IP nebo ipp://…)", printerUrl) { printerUrl = it; printerName = "" }
+                    printerTest?.let { Text(it, fontSize = 18.sp) }
+                } else {
+                    Text(
+                        "Otevře se tiskový dialog Androidu. Tiskárna musí být přidaná přes tiskovou službu (Nastavení Androidu → Tisk, např. Mopria nebo aplikace výrobce tiskárny).",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+                Field("Max. počet kopií pro zákazníka", printMaxCopies, number = true) { printMaxCopies = it.filter(Char::isDigit) }
+            }
+
+            // ---------------------------------------------------------------- E-mail
             Section("E-mail (SMTP)")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { host = "smtp.gmail.com"; port = "465"; security = "SSL" }) { Text("Gmail") }
@@ -273,22 +544,81 @@ fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Uni
             Field("Jméno odesílatele", fromName) { fromName = it }
             Field("Předmět", subject) { subject = it }
             Field("Text e-mailu", body, singleLine = false) { body = it }
+            SwitchRow("Tolerovat neověřený certifikát (jen pro staré Androidy)", trustAll) { trustAll = it }
 
-            Button(onClick = {
-                save()
-                val to = settings.fromAddress.ifEmpty { settings.smtpUser }
-                testResult = "Odesílám testovací e-mail na $to…"
-                scope.launch {
-                    testResult = withContext(Dispatchers.IO) {
-                        runCatching {
-                            Mailer.send(settings, to, "Test fotokiosku", "Odesílání e-mailů z fotokiosku funguje.", null)
-                            "Testovací e-mail odeslán na $to ✔"
-                        }.getOrElse { "Chyba: ${it.message ?: it.javaClass.simpleName}" }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { testMail(send = false) }, enabled = !mailTesting) { Text("Otestovat připojení k mailu") }
+                OutlinedButton(onClick = { testMail(send = true) }, enabled = !mailTesting) { Text("…a poslat testovací e-mail") }
+            }
+            if (mailTesting) Text("Testuji připojení…", fontSize = 18.sp)
+            mailReport?.let { report ->
+                Column(
+                    Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (report.ok) "✔ Pošta funguje" else "✘ Pošta nefunguje",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (report.ok) Color(0xFF81C784) else Color(0xFFFF6E6E),
+                    )
+                    report.steps.forEach { step ->
+                        Text("${if (step.ok) "✔" else "✘"} ${step.name}: ${step.detail}", fontSize = 17.sp,
+                            color = if (step.ok) Color.White else Color(0xFFFF6E6E))
+                        step.hint?.let { Text("→ $it", fontSize = 17.sp, color = Accent) }
+                    }
+                    if (report.protocolLog.isNotBlank()) {
+                        TextButton(onClick = { showProtocol = !showProtocol }) {
+                            Text(if (showProtocol) "Skrýt komunikaci se serverem" else "Zobrazit komunikaci se serverem")
+                        }
+                        if (showProtocol) Text(report.protocolLog, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                     }
                 }
-            }) { Text("Uložit a poslat testovací e-mail") }
-            testResult?.let { Text(it, fontSize = 18.sp) }
+            }
 
+            // ---------------------------------------------------------------- Aktualizace
+            Section("Aktualizace")
+            Text("Nainstalovaná verze: ${Updater.currentName}", fontSize = 18.sp)
+            latest?.let { r ->
+                if (r.versionCode > Updater.currentVersion) {
+                    Text("Na GitHubu je nová verze: ${r.title}", fontSize = 18.sp, color = Accent)
+                    if (r.notes.isNotBlank()) Text(r.notes.take(400), fontSize = 15.sp, color = Color.White.copy(alpha = 0.7f))
+                } else {
+                    Text("Je nainstalovaná nejnovější verze.", fontSize = 16.sp, color = Color.White.copy(alpha = 0.6f))
+                }
+            }
+            Button(onClick = { runUpdate() }, enabled = !Updater.busy) { Text("Aktualizovat aplikaci") }
+            if (Updater.busy && Updater.progress > 0f && Updater.progress < 1f) {
+                LinearProgressIndicator(progress = { Updater.progress }, modifier = Modifier.fillMaxWidth())
+            }
+            if (Updater.status.isNotEmpty()) Text(Updater.status, fontSize = 18.sp)
+            Text(
+                "Stáhne poslední vydání z GitHubu a nainstaluje ho. Nastavení, logo i tiskárna zůstanou.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            Field("Repozitář na GitHubu (vlastník/název)", githubRepo) { githubRepo = it }
+            Field("Token (jen pro soukromý repozitář)", githubToken, password = true) { githubToken = it }
+
+            // ---------------------------------------------------------------- Log
+            Section("Log (záznam událostí)")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = {
+                    showLog = !showLog
+                    if (showLog) logText = AppLog.tail(120)
+                }) { Text(if (showLog) "Skrýt log" else "Zobrazit log") }
+                OutlinedButton(onClick = { AppLog.clear(); logText = "" }) { Text("Smazat log") }
+            }
+            if (showLog) {
+                Text(
+                    logText.ifEmpty { "(prázdný)" },
+                    fontSize = 13.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(8.dp)).padding(12.dp),
+                )
+            }
+
+            // ---------------------------------------------------------------- Systém
             Section("Systém")
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_WIFI_SETTINGS) }) { Text("Wi-Fi") }
@@ -323,6 +653,28 @@ fun AdminScreen(settings: KioskSettings, camera: KioskCamera, onClose: () -> Uni
             },
             dismissButton = { TextButton(onClick = { confirmRemoveOwner = false }) { Text("Zrušit") } },
         )
+    }
+}
+
+/** Řada přepínacích tlačítek (jedna volba z několika). */
+@Composable
+private fun ChoiceRow(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { (value, label) ->
+            val isSelected = value == selected
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(if (isSelected) Accent else KeyColor)
+                    .clickable { onSelect(value) }
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
+                Text(label, fontSize = 18.sp, color = if (isSelected) Color.Black else Color.White)
+            }
+        }
     }
 }
 

@@ -212,15 +212,46 @@ if ($apps.Count -eq 0) {
 
 # ---------------------------------------------------------------------------
 Step '5/7  Instalace fotokiosku'
+$releaseUrl = 'https://github.com/dominikperlik-png/fotokiosek/releases/latest/download/fotokiosek.apk'
+$localApk = Join-Path $here 'Fotokiosek.apk'
+if (-not (Test-Path $localApk) -or (Ask 'Stáhnout nejnovější verzi z GitHubu (jinak se použije Fotokiosek.apk ze složky)?')) {
+    try {
+        Info "Stahuji $releaseUrl"
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $releaseUrl -OutFile $localApk -UseBasicParsing
+        Ok 'Staženo.'
+    } catch {
+        Warn "Stažení se nepovedlo ($($_.Exception.Message)), použiju APK ze složky."
+    }
+}
 $apk = @(
-    (Join-Path $here 'Fotokiosek.apk'),
+    $localApk,
+    (Join-Path $here 'app\build\outputs\apk\release\app-release.apk'),
     (Join-Path $here 'app\build\outputs\apk\debug\app-debug.apk')
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $apk) { Fail 'Nenašel jsem Fotokiosek.apk vedle tohoto skriptu.'; exit 1 }
 $sdk = 0
 [int]::TryParse((Sh 'getprop ro.build.version.sdk'), [ref]$sdk) | Out-Null
-if ($sdk -ge 23) { $r = Invoke-Adb install -r -g $apk } else { $r = Invoke-Adb install -r $apk }
-if ($r -match 'Success') { Ok 'Fotokiosek nainstalován.' } else { Fail "Instalace selhala: $r"; exit 1 }
+function Install-Apk { if ($sdk -ge 23) { return (Invoke-Adb install -r -g $apk) } else { return (Invoke-Adb install -r $apk) } }
+$r = Install-Apk
+if ($r -match 'UPDATE_INCOMPATIBLE|signatures do not match') {
+    # Starší verze byla podepsaná jiným klíčem. Jednou je potřeba odinstalovat – pak už jdou aktualizace z menu.
+    Warn 'Na automatu je starší fotokiosek podepsaný jiným klíčem. Je potřeba ho jednou odinstalovat'
+    Warn '(nastavení se smaže – config.properties ho na konci nahraje znovu).'
+    $isOwner = ((Sh 'dumpsys device_policy') -match $ownerPattern) -and ($Matches[1] -like "$pkg/*")
+    if ($isOwner) {
+        Fail 'Fotokiosek je správcem zařízení, takže nejde odinstalovat.'
+        Info 'Na automatu otevři menu správce → Systém → „Odebrat správce zařízení“ a spusť instalaci znovu.'
+        exit 1
+    }
+    if (Ask 'Odinstalovat starou verzi a nainstalovat novou?') {
+        Info (Invoke-Adb uninstall $pkg)
+        $r = Install-Apk
+    }
+} elseif ($r -match 'VERSION_DOWNGRADE') {
+    Warn 'Na automatu je novější verze než tohle APK. Aktualizuj přes menu správce → Aktualizace, nebo stáhni nejnovější verzi.'
+}
+if ($r -match 'Success') { Ok 'Fotokiosek nainstalován.' } elseif ($r -notmatch 'VERSION_DOWNGRADE') { Fail "Instalace selhala: $r"; exit 1 }
 
 # ---------------------------------------------------------------------------
 Step '6/7  Zamčení kiosku (správce zařízení)'
@@ -260,6 +291,17 @@ if (Test-Path $cfg) {
 } else {
     Info 'Soubor config.properties nenalezen – e-mail nastav přímo v aplikaci'
     Info '(5× klepnout do levého horního rohu, PIN 1234).'
+}
+$logo = @('logo.png', 'logo.jpg', 'logo.jpeg', 'logo.svg', 'logo.webp') | ForEach-Object { Join-Path $here $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($logo) {
+    Sh "mkdir -p $remoteDir" | Out-Null
+    $r = Invoke-Adb push $logo "$remoteDir/$(Split-Path -Leaf $logo)"
+    if ($r -match 'pushed|1 file') {
+        Ok "Logo $(Split-Path -Leaf $logo) nahráno."
+        Sh "am force-stop $pkg" | Out-Null
+        Start-Sleep 1
+        Sh "am start -n $pkg/.MainActivity" | Out-Null
+    } else { Warn "Nahrání loga selhalo: $r" }
 }
 
 Write-Host ''

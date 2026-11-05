@@ -1,0 +1,86 @@
+# Po každém pushi do main: sestaví podepsané APK a vydá ho jako GitHub Release.
+# Automat si ho pak stáhne tlačítkem „Aktualizovat aplikaci“ v menu správce.
+#
+# Potřebné secrets (Settings → Secrets and variables → Actions):
+#   KEYSTORE_BASE64        – podpisový klíč (.jks) zakódovaný v base64
+#   SIGNING_STORE_PASSWORD – heslo ke klíči
+#   SIGNING_KEY_ALIAS      – alias klíče
+#   SIGNING_KEY_PASSWORD   – heslo k aliasu
+name: Sestavení a vydání
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'POSTUP.html'
+      - '*.ps1'
+      - '*.bat'
+      - 'config.example.properties'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # počet commitů = číslo verze
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Podpisový klíč
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Chybí secret KEYSTORE_BASE64 – bez něj by aktualizace na automatu nešly nainstalovat (jiný podpis)."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Sestavení APK
+        env:
+          SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          set -o pipefail
+          ./gradlew --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log
+          CODE=$(( 100 + $(git rev-list --count HEAD) ))
+          echo "CODE=$CODE" >> "$GITHUB_ENV"
+          cp app/build/outputs/apk/release/app-release.apk fotokiosek.apk
+
+      - name: Chyby sestavení do souhrnu
+        if: failure()
+        run: |
+          {
+            echo '## Sestavení selhalo'
+            echo '```'
+            grep -E '^e: |error:|What went wrong' -A3 build.log | head -n 150 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Vydání
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="$(git log -1 --pretty=%B)"
+          gh release create "v$CODE" fotokiosek.apk \
+            --title "Fotokiosek 1.$CODE" \
+            --notes "$NOTES" \
+            --latest

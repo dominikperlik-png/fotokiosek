@@ -35,7 +35,36 @@ class KioskSettings(context: Context) {
     var subject by string("subject", "Tvoje fotka z fotokoutku")
     var body by string("body", "Ahoj,\n\nv příloze posíláme tvoji fotku z fotokoutku.\n\nDíky a měj se hezky!")
 
+    /** Tolerovat neověřitelný certifikát SMTP serveru (staré Androidy bez aktuálních kořenových certifikátů). */
+    var smtpTrustAll by bool("smtp_trust_all", false)
+
+    /** Zdroj obrazu: auto (Canon, když je připojený, jinak kamera Androidu), android, canon. */
+    var cameraSource by string("camera_source", "auto")
+    /** O kolik ms dřív se pustí spoušť, aby fotka vznikla přesně s nápisem „Úsměv!“. */
+    var shutterLeadMs by int("shutter_lead_ms", 250)
+    /** Otočení obrazu zrcadlovky (0/90/180/270) – když je fotoaparát namontovaný na výšku. */
+    var canonRotation by int("canon_rotation", 0)
+
+    var printEnabled by bool("print_enabled", false)
+    /** ipp = síťová tiskárna přímo (bez dialogů), system = tiskový dialog Androidu. */
+    var printMode by string("print_mode", "ipp")
+    var printerUrl by string("printer_url", "")
+    var printerName by string("printer_name", "")
+    var printMaxCopies by int("print_max_copies", 5)
+
+    var logoOnScreen by bool("logo_on_screen", true)
+    var logoOnPhoto by bool("logo_on_photo", true)
+    /** TL, TR, BL, BR (roh fotky). */
+    var logoPosition by string("logo_position", "BR")
+    /** Šířka loga v procentech šířky fotky. */
+    var logoSize by int("logo_size", 18)
+
+    var githubRepo by string("github_repo", BuildConfig.GITHUB_REPO)
+    /** Jen pro soukromý repozitář: token s právem číst obsah. */
+    var githubToken by string("github_token", "")
+
     var sentCount by int("sent_count", 0)
+    var printCount by int("print_count", 0)
     var lastError by string("last_error", "")
 
     /**

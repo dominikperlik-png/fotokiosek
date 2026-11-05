@@ -1,8 +1,34 @@
+# --- Sestavení / IDE ---
 .gradle/
 build/
+app/build/
 local.properties
 .idea/
 *.iml
+.DS_Store
+Thumbs.db
+
+# --- Hotová APK (vydávají se přes GitHub Releases) ---
+*.apk
+*.aab
+
+# --- Tajné údaje: NIKDY do Gitu ---
 config.properties
+keystore.properties
+*.jks
+*.keystore
+github-secrets.txt
+
+# --- Data z automatu ---
 diagnostika.txt
 zaloha/
+logo.png
+logo.jpg
+logo.jpeg
+logo.svg
+logo.webp
+fotky/
+logs/
+
+# --- Přibalené nástroje Windows (adb) – stáhne si je každý sám ---
+platform-tools/

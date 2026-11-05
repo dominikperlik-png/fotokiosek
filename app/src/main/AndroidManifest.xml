@@ -4,10 +4,25 @@
     <uses-feature
         android:name="android.hardware.camera.any"
         android:required="false" />
+    <!-- Zrcadlovka Canon EOS přes USB (PTP) -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Vyhledání síťových tiskáren (mDNS) -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- Aktualizace z GitHubu (bez ptaní jen když je aplikace správcem zařízení) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Na Androidu 11+ musí aplikace předem říct, které cizí balíčky chce vidět -->
+    <queries>
+        <package android:name="com.android.mtp" />
+        <package android:name="com.android.printspooler" />
+    </queries>
 
     <application
         android:allowBackup="false"
@@ -31,6 +46,13 @@
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Po připojení zrcadlovky Canon se nabídne fotokiosek („Vždy“ = trvalé oprávnění k USB) -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/usb_device_filter" />
         </activity>
 
         <!-- Správce zařízení: adb shell dpm set-device-owner cz.fotokiosek/.KioskAdminReceiver -->
@@ -43,6 +65,15 @@
                 android:resource="@xml/device_admin" />
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Výsledek instalace aktualizace a restart po ní -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>

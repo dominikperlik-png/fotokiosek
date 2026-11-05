@@ -139,6 +139,10 @@ Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</
     <li><a href="#instalace">Spustit instalaci</a></li>
     <li><a href="#zkouska">Nastavení a zkouška</a></li>
     <li><a href="#ovladani">Ovládání pro správce</a></li>
+    <li><a href="#zrcadlovka">Zrcadlovka Canon EOS</a></li>
+    <li><a href="#tisk">Tisk fotek</a></li>
+    <li><a href="#logo">Vlastní logo</a></li>
+    <li><a href="#aktualizace">Aktualizace z GitHubu</a></li>
     <li><a href="#problemy">Řešení problémů</a></li>
     <li><a href="#zpet">Vrácení do původního stavu</a></li>
     <li><a href="#upravy">Úpravy aplikace</a></li>
@@ -150,10 +154,12 @@ Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</
 <table>
   <tr><th>Soubor / složka</th><th>K čemu je</th></tr>
   <tr><td><code>POSTUP.html</code></td><td>Tenhle návod.</td></tr>
-  <tr><td><code>Fotokiosek.apk</code></td><td>Hotová aplikace pro automat (Android 5.0 a novější).</td></tr>
+  <tr><td><code>Fotokiosek.apk</code></td><td>Hotová aplikace pro automat (Android 5.0 a novější). Instalace si umí stáhnout nejnovější verzi z GitHubu sama.</td></tr>
   <tr><td><code>spustit-instalaci.bat</code></td><td>Dvojklikem spustíš instalaci na automat.</td></tr>
   <tr><td><code>instalace.ps1</code></td><td>Samotný instalační skript (spouští ho .bat soubor).</td></tr>
-  <tr><td><code>config.example.properties</code></td><td>Vzor nastavení (e-mail, PIN, texty).</td></tr>
+  <tr><td><code>config.example.properties</code></td><td>Vzor nastavení (e-mail, PIN, texty, tisk, logo).</td></tr>
+  <tr><td><code>logo.png</code> (volitelné)</td><td>Vlastní logo – instalace ho nahraje do automatu.</td></tr>
+  <tr><td><code>keystore.properties</code>, <code>fotokiosek-release.jks</code></td><td>Podpisový klíč aplikace. <strong>Zazálohuj a nikomu neposílej.</strong> Bez něj nepůjdou aktualizace.</td></tr>
   <tr><td><code>platform-tools\</code></td><td>Program adb, kterým počítač ovládá automat.</td></tr>
   <tr><td><code>app\</code>, <code>gradle\</code>, <code>*.gradle.kts</code>, <code>gradlew*</code></td><td>Zdrojový kód aplikace (potřeba jen pro úpravy).</td></tr>
 </table>
@@ -262,9 +268,9 @@ pin=4826</pre></div>
   <tr><td>2 Diagnostika</td><td>Zjistí Android, kamery, displej a aplikace. Uloží to do <code>diagnostika.txt</code>.</td><td>Nic.</td></tr>
   <tr><td>3 Správce zařízení</td><td>Zjistí, jestli automat nedrží „správce zařízení“ od výrobce, a pokusí se ho odebrat.</td><td>Pokud má automat root, zeptá se na smazání záznamu správce a restart. Odpověz <kbd>a</kbd>.</td></tr>
   <tr><td>4 Původní aplikace</td><td>Vypíše aplikace a označí tu, která se spouští po zapnutí.</td><td>Napiš čísla aplikací k vypnutí, nebo jen <kbd>Enter</kbd> pro tu označenou. Vypnuté aplikace se zazálohují do složky <code>zaloha</code>.</td></tr>
-  <tr><td>5 Instalace</td><td>Nainstaluje <code>Fotokiosek.apk</code>.</td><td>Nic.</td></tr>
+  <tr><td>5 Instalace</td><td>Nabídne stažení nejnovější verze z GitHubu a nainstaluje ji.</td><td><kbd>a</kbd> = stáhnout nejnovější. Když hlásí jiný podpis, viz <a href="#aktualizace">Aktualizace</a>.</td></tr>
   <tr><td>6 Zamčení</td><td>Nastaví fotokiosek jako správce zařízení: nejde ho opustit a spouští se po zapnutí.</td><td>Nic. Když hlásí chybu kvůli účtům, odeber účty (krok 5) a spusť instalaci znovu.</td></tr>
-  <tr><td>7 Spuštění</td><td>Nahraje <code>config.properties</code> a spustí fotokiosek.</td><td>Na závěr se zeptá na restart: <kbd>a</kbd>.</td></tr>
+  <tr><td>7 Spuštění</td><td>Nahraje <code>config.properties</code> a <code>logo.png</code> (jsou-li ve složce) a spustí fotokiosek.</td><td>Na závěr se zeptá na restart: <kbd>a</kbd>.</td></tr>
 </table>
 </div>
 <div class="box tip"><p>Instalaci jde klidně spustit znovu. Už hotové kroky přeskočí.</p></div>
@@ -274,7 +280,7 @@ pin=4826</pre></div>
   <li><input type="checkbox" data-id="z1"> Po restartu musí sám naběhnout fotokiosek se živým obrazem z kamery.</li>
   <li><input type="checkbox" data-id="z2"> Otevři <strong>menu správce</strong>: 5× rychle klepni do <strong>levého horního rohu</strong> (do 3 sekund) a zadej PIN (výchozí 1234).</li>
   <li><input type="checkbox" data-id="z3"> <strong>Kamera:</strong> když je obraz černobílý nebo divně tmavý, je vybraná infračervená kamera. Vyber v seznamu druhou. Podle potřeby zapni nebo vypni zrcadlení.</li>
-  <li><input type="checkbox" data-id="z4"> Klepni na <strong>„Uložit a poslat testovací e-mail“</strong> a zkontroluj schránku kiosku (i spam).</li>
+  <li><input type="checkbox" data-id="z4"> Klepni na <strong>„Otestovat připojení k mailu“</strong>. Test projde krok po kroku (internet → server → šifrování → přihlášení) a u chyby napíše příčinu a co s tím. Pak <strong>„…a poslat testovací e-mail“</strong> a zkontroluj schránku kiosku (i spam).</li>
   <li><input type="checkbox" data-id="z5"> Pokud jsi PIN nezměnil v config.properties, <strong>změň ho teď</strong> a dej <em>Uložit</em>.</li>
   <li><input type="checkbox" data-id="z6"> <strong>Ostrá zkouška:</strong> vyfoť se, pošli fotku na svůj e-mail a zkontroluj, že dorazila.</li>
   <li><input type="checkbox" data-id="z7"> Automat vypni ze zásuvky a zase zapni. Musí naběhnout rovnou fotokiosek.</li>
@@ -287,9 +293,12 @@ pin=4826</pre></div>
 <ul>
   <li><strong>Menu správce:</strong> 5× klepnout do levého horního rohu (do 3 s) a zadat PIN.</li>
   <li><strong>Stav nahoře v menu:</strong> jestli je kiosek zamčený, jestli kamera funguje, kolik fotek čeká ve frontě, kolik se odeslalo a poslední chyba.</li>
-  <li><strong>Kamera:</strong> výběr kamery, zrcadlení, náhled přes celou obrazovku (fotka se ořízne stejně jako náhled).</li>
+  <li><strong>Kamera:</strong> zdroj obrazu (automaticky / kamera Androidu / zrcadlovka Canon), stav zrcadlovky a tlačítko <em>Znovu připojit</em>, výběr kamery, zrcadlení, náhled přes celou obrazovku (fotka se ořízne stejně jako náhled), předstih spouště.</li>
   <li><strong>Kiosek:</strong> uvítací text, délka odpočtu, návrat na úvod po nečinnosti, po kolika dnech se mažou fotky, PIN.</li>
-  <li><strong>E-mail:</strong> tlačítka Gmail / Seznam / Brevo vyplní server, pak testovací e-mail.</li>
+  <li><strong>Logo, Tisk:</strong> viz kapitoly níže.</li>
+  <li><strong>E-mail:</strong> tlačítka Gmail / Seznam / Brevo vyplní server. <em>Otestovat připojení k mailu</em> ukáže přesnou příčinu chyby; <em>Zobrazit komunikaci se serverem</em> ukáže, co server odpověděl.</li>
+  <li><strong>Aktualizace:</strong> tlačítko <em>Aktualizovat aplikaci</em>.</li>
+  <li><strong>Log:</strong> záznam událostí a chyb (odesílání, kamera, tisk, aktualizace) přímo na automatu.</li>
   <li><strong>Systém:</strong> Wi-Fi a Nastavení Androidu. Tlačítko Domů tě potom vrátí zpět do kiosku.</li>
   <li>Když vypadne internet, fotky čekají ve frontě a odešlou se samy, jakmile se spojení vrátí, i po restartu.</li>
 </ul>
@@ -300,8 +309,10 @@ pin=4826</pre></div>
   <tr><th>Problém</th><th>Co s tím</th></tr>
   <tr><td>Na obrazovce je „Kamera nenalezena“</td><td>Android tu USB kameru sám nevidí. Pošli mi <code>diagnostika.txt</code>, doplním podporu USB (UVC) kamer.</td></tr>
   <tr><td>Obraz je černobílý nebo tmavý</td><td>Je vybraná infračervená kamera. V menu správce vyber jinou.</td></tr>
-  <tr><td>Obraz je bokem nebo vzhůru nohama</td><td>Napiš mi. Doplním do menu nastavení otočení obrazu.</td></tr>
-  <tr><td>Testovací e-mail hlásí chybu</td><td>U Gmailu je skoro vždy špatně heslo: musí to být <em>heslo pro aplikace</em>, ne heslo k účtu. Zkontroluj taky internet a datum a čas na automatu.</td></tr>
+  <tr><td>Obraz zrcadlovky je bokem</td><td>Menu správce → Kamera → <em>Otočení obrazu zrcadlovky</em>. Náhled i fotka se otočí stejně.</td></tr>
+  <tr><td>Fotka vznikne až po nápisu „Úsměv!“</td><td>Menu správce → Kamera → zvyš <em>Předstih spouště</em> (např. na 400 ms). Pod polem je vidět naměřená prodleva kamery.</td></tr>
+  <tr><td>Test pošty hlásí chybu</td><td>Přečti si radu u kroku, který selhal (→). Nejčastěji: u Gmailu musí být <em>heslo pro aplikace</em>, ne heslo k účtu; špatné datum a čas na automatu; port a zabezpečení k sobě nesedí (465 = SSL, 587 = STARTTLS). U starých Androidů pomůže „Tolerovat neověřený certifikát“.</td></tr>
+  <tr><td>Fotky visí ve frontě</td><td>Spusť test pošty. Fronta to zkouší pořád znovu (30 s, 60 s, 90 s…), po opravě nastavení se fotky odešlou samy.</td></tr>
   <tr><td>Fotky padají do spamu</td><td>Přejdi na Brevo s vlastní doménou. Lidem se zatím dá říct „mrkni i do spamu“ (to se jim po odeslání ukazuje samo).</td></tr>
   <tr><td>Po zapnutí naběhne zase jejich aplikace</td><td>Spusť instalaci znovu a v kroku 4 vyber i další jejich aplikace. Pošli mi <code>diagnostika.txt</code>.</td></tr>
   <tr><td>Po zapnutí se Android ptá, jakou domovskou aplikaci použít</td><td>Vyber <em>Fotokiosek</em> → <em>Vždy</em>. Znamená to, že se nepovedl krok 6 instalace (zamčení).</td></tr>
@@ -317,6 +328,45 @@ pin=4826</pre></div>
   <li>text „Poslední chyba“ z menu správce (u problémů s e-mailem).</li>
 </ul>
 
+<h2 id="zrcadlovka">Zrcadlovka Canon EOS</h2>
+<p>Fotokiosek umí místo kamery automatu používat zrcadlovku nebo bezzrcadlovku Canon EOS připojenou USB kabelem – se živým náhledem a fotkou v plném rozlišení. Ovládá ji přímo protokolem PTP (stejně jako program EOS Utility), nic dalšího se neinstaluje.</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="ce1"> Na fotoaparátu: režim <strong>M, Av, Tv nebo P</strong> (ne video, ne „A+“), kvalita <strong>JPEG</strong> (třeba L nebo M – RAW se nepřenáší), v menu <strong>vypni Wi-Fi/Bluetooth</strong> (jinak USB nefunguje) a <strong>automatické vypnutí</strong>.</li>
+  <li><input type="checkbox" data-id="ce2"> Ideálně napájení z adaptéru (atrapa baterie) – celodenní živý náhled vybije baterii za pár hodin.</li>
+  <li><input type="checkbox" data-id="ce3"> Připoj fotoaparát do USB portu automatu (USB-A, případně přes OTG redukci) a zapni ho.</li>
+  <li><input type="checkbox" data-id="ce4"> Android se zeptá, jestli fotoaparát otevřít ve Fotokiosku: zaškrtni <strong>„Vždy“ / „Použít ve výchozím nastavení“</strong> a potvrď. Příště už se ptát nebude.</li>
+  <li><input type="checkbox" data-id="ce5"> Menu správce → Kamera: zelená tečka = připojeno. Když svítí červeně, klepni na <strong>Znovu připojit</strong>.</li>
+  <li><input type="checkbox" data-id="ce6"> Ostření: nejspolehlivější je zaostřit jednou ručně a přepnout objektiv na <strong>MF</strong>. S AF fotoaparát při špatném světle nemusí cvaknout.</li>
+</ul>
+<p class="muted">Zdroj obrazu „Automaticky“ použije zrcadlovku, když je připojená, jinak kameru automatu. Když si fotoaparát zabere systém Androidu (aplikace „MTP host“), fotokiosek ji jako správce zařízení sám skryje a připojí se znovu.</p>
+
+<h2 id="tisk">Tisk fotek</h2>
+<p>Když je tisk zapnutý, je u hotové fotky tlačítko <strong>Vytisknout</strong> vedle „Poslat na e-mail“. Zákazník vybere počet kopií (− / +, max. podle nastavení) a potvrdí.</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="t1"> Tiskárnu připoj do <strong>stejné sítě</strong> jako automat (Wi-Fi nebo kabel). Funguje skoro každá síťová tiskárna z posledních let (AirPrint / Mopria / IPP Everywhere), fototiskárny třeba Canon Selphy, Epson, HP.</li>
+  <li><input type="checkbox" data-id="t2"> Menu správce → Tisk → zapni <strong>Povolit tisk</strong> → <strong>Vyhledat tiskárny</strong> → vyber svoji. Když ji nenajde, napiš její IP adresu (najdeš ji v menu tiskárny).</li>
+  <li><input type="checkbox" data-id="t3"> <strong>Otestovat tiskárnu</strong> ukáže model a stav. Pak dej <strong>Uložit</strong> a zkus vytisknout fotku.</li>
+</ul>
+<p class="muted">Režim „Systémový tisk Androidu“ otevře tiskový dialog Androidu – hodí se pro tiskárny, které umí jen přes aplikaci výrobce (tiskovou službu). Pro zákazníky je pohodlnější síťový režim, který tiskne hned bez dialogů.</p>
+
+<h2 id="logo">Vlastní logo</h2>
+<ul>
+  <li>Menu správce → Logo → <strong>Nahrát logo</strong>: otevře se výběr souboru Androidu (USB flashka, Stažené soubory…). PNG s průhledností, JPG nebo SVG.</li>
+  <li>Nebo dej soubor <code>logo.png</code> (nebo <code>logo.svg</code>) do složky vedle instalace a spusť instalaci – nahraje ho sama.</li>
+  <li>Logo se ukazuje na úvodní obrazovce a vkládá do rohu fotky (do e-mailu i na tisk). Roh a velikost nastavíš v menu, jde ho i smazat nebo nahradit.</li>
+  <li>Logo je uložené v paměti aplikace – přežije restart i aktualizaci.</li>
+</ul>
+
+<h2 id="aktualizace">Aktualizace z GitHubu</h2>
+<p>Kód je na GitHubu v repozitáři <a href="https://github.com/dominikperlik-png/fotokiosek">dominikperlik-png/fotokiosek</a>. Po každé změně tam GitHub sám sestaví novou verzi aplikace a vydá ji (záložka <em>Releases</em>).</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="u1"> Na automatu: menu správce → Aktualizace → <strong>Aktualizovat aplikaci</strong>. Stáhne a nainstaluje novou verzi a sama se restartuje. Nastavení e-mailu, tiskárny, logo i PIN zůstanou.</li>
+</ul>
+<div class="box warn">
+  <p><strong>Jednou ruční přeinstalace:</strong> verze z doby před GitHubem byla podepsaná jiným klíčem, takže přes ni nová verze nejde nainstalovat. Postup (jen jednou): v menu správce dej <em>Odebrat správce zařízení</em>, pak spusť instalaci (<code>spustit-instalaci.bat</code>), nech ji stáhnout nejnovější verzi a potvrď odinstalaci staré. Od té doby už stačí tlačítko v menu.</p>
+</div>
+<p class="muted">Podpisový klíč (<code>fotokiosek-release.jks</code> + <code>keystore.properties</code>) je jen u tebe a v tajných proměnných GitHubu. Kdyby se ztratil, aplikaci by šlo aktualizovat zase jen přeinstalací.</p>
+
 <h2 id="zpet">Vrácení do původního stavu</h2>
 <ol>
   <li>V menu správce dej <strong>Odebrat správce zařízení</strong>.</li>
@@ -331,14 +381,13 @@ pin=4826</pre></div>
 </ol>
 
 <h2 id="upravy">Úpravy aplikace</h2>
-<p>O úpravy (otočení obrazu, logo na fotce, jiné texty, USB kamera…) si klidně řekni a APK sestavím znovu.
-Nástroje na sestavení leží v <code>%LOCALAPPDATA%\FotokiosekBuild</code> (2,3 GB). Až nebudeš nic upravovat, můžeš je smazat.</p>
-<p>Sestavení ručně (v <code>cmd</code> otevřeném ve složce projektu):</p>
+<p>O úpravy si klidně řekni. Změny se nahrají na GitHub, ten sestaví novou verzi a na automatu ji nainstaluješ tlačítkem <em>Aktualizovat aplikaci</em>.</p>
+<p>Ruční sestavení na počítači (v <code>cmd</code> otevřeném ve složce projektu; podepíše se klíčem z <code>keystore.properties</code>):</p>
 <div class="cmd"><pre>set JAVA_HOME=%LOCALAPPDATA%\FotokiosekBuild\jdk-17.0.21.0.2+1
 set ANDROID_HOME=%LOCALAPPDATA%\FotokiosekBuild\sdk
 set GRADLE_USER_HOME=%LOCALAPPDATA%\FotokiosekBuild\gradle-home
-gradlew.bat assembleDebug</pre></div>
-<p>Nové APK najdeš v <code>app\build\outputs\apk\debug\app-debug.apk</code>. Zkopíruj ho sem jako <code>Fotokiosek.apk</code> a spusť instalaci znovu. Nastavení na automatu zůstane zachované.</p>
+gradlew.bat assembleRelease</pre></div>
+<p>Nové APK najdeš v <code>app\build\outputs\apk\release\app-release.apk</code>.</p>
 
 <h3>Proč se nepřeflashovává celý systém</h3>
 <p>Výměna firmwaru na neznámé desce je riskantní: se špatným obrazem systému zbude z automatu cihla. Vypnutí původní aplikace a nastavení fotokiosku jako správce zařízení dá stejný výsledek, po zapnutí naběhne jen fotokiosek, a jde to kdykoli vrátit.</p>
