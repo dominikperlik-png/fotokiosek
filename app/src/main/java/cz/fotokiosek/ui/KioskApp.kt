@@ -113,8 +113,10 @@ fun KioskApp(
 
     fun shoot() {
         if (screen != Screen.Idle) return
+        val seconds = settings.countdown.coerceIn(0, 10)
+        // Obrazovku přepnout hned (ne až v korutině) – jinak dvojité klepnutí spustí dva odpočty a dvě focení.
+        screen = Screen.Countdown(seconds)
         scope.launch {
-            val seconds = settings.countdown.coerceIn(0, 10)
             val lead = settings.shutterLeadMs.coerceIn(0, 900).toLong()
             val end = SystemClock.elapsedRealtime() + seconds * 1000L
             suspend fun waitUntil(t: Long) = delay((t - SystemClock.elapsedRealtime()).coerceAtLeast(0))
@@ -181,8 +183,14 @@ fun KioskApp(
         printFor = null
         val job = "Fotokiosek ${System.currentTimeMillis() / 1000}"
         if (settings.printMode == "system") {
-            (context as? Activity)?.let { SystemPrint.print(it, photo, copies, job) }
-            settings.printCount += copies
+            // Na některých deskách tiskový systém Androidu chybí – chyba nesmí shodit kiosek.
+            runCatching { (context as? Activity)?.let { SystemPrint.print(it, photo, copies, job) } }
+                .onSuccess { settings.printCount += copies }
+                .onFailure { e ->
+                    AppLog.e("Tisk", "Systémový tisk nejde spustit", e)
+                    settings.lastError = "Tisk: ${e.message}"
+                    notice = Notice("Tisk se nepovedl. Požádej obsluhu.")
+                }
             return
         }
         if (settings.printerUrl.isBlank()) {
