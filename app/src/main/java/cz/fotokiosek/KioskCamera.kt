@@ -60,6 +60,9 @@ class KioskCamera(private val activity: ComponentActivity) {
      */
     var cameraId = ""
     @Volatile var mirror = true
+    /** Dodatečné otočení JEN živého náhledu vestavěné kamery (fotka se nemění). Externí USB kamera se neotáčí. */
+    @Volatile var previewRotation = 0
+    @Volatile private var activeIsExternal = false
     var fill = true
     /** Když je aktivní zrcadlovka, kamera Androidu se vypne. */
     var enabled = true
@@ -160,6 +163,7 @@ class KioskCamera(private val activity: ComponentActivity) {
             val camera = p.bindToLifecycle(activity, selector, group.build())
             imageCapture = capture
             activeId = id
+            activeIsExternal = facingOf(info) == CameraCharacteristics.LENS_FACING_EXTERNAL
             error = null
             observedState?.removeObservers(activity)
             observedState = camera.cameraInfo.cameraState.also { state ->
@@ -183,7 +187,10 @@ class KioskCamera(private val activity: ComponentActivity) {
             val listener = onFrame
             if (listener == null || now - lastFrameAt < FRAME_INTERVAL_MS) return
             lastFrameAt = now
-            listener(orient(image, mirror, PREVIEW_MAX_SIDE))
+            // Jen náhled: dodatečné otočení (např. 180°) – na některých deskách ImageAnalysis hlásí jinou
+            // rotaci senzoru než ImageCapture, takže náhled byl vzhůru nohama, i když fotka byla správně.
+            val extra = if (activeIsExternal) 0 else previewRotation
+            listener(orient(image, mirror, PREVIEW_MAX_SIDE, extra))
         } catch (e: Exception) {
             AppLog.w(TAG, "Snímek náhledu", e)
         } finally {
@@ -251,7 +258,7 @@ class KioskCamera(private val activity: ComponentActivity) {
          * Ořez (viewport), otočení podle senzoru, zrcadlení a zmenšení.
          * Stejná funkce pro náhled i fotku → obojí má vždy stejnou orientaci.
          */
-        fun orient(image: ImageProxy, mirror: Boolean, maxSide: Int): Bitmap {
+        fun orient(image: ImageProxy, mirror: Boolean, maxSide: Int, extraRotation: Int = 0): Bitmap {
             var source = image.toBitmap()
             val crop = image.cropRect
             val needsCrop = crop.width() != source.width || crop.height() != source.height
@@ -261,6 +268,7 @@ class KioskCamera(private val activity: ComponentActivity) {
             val matrix = Matrix()
             matrix.postRotate(image.imageInfo.rotationDegrees.toFloat())
             if (mirror) matrix.postScale(-1f, 1f)
+            if (extraRotation % 360 != 0) matrix.postRotate(extraRotation.toFloat())
             val longSide = max(source.width, source.height)
             if (longSide > maxSide) {
                 val scale = maxSide.toFloat() / longSide

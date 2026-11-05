@@ -46,6 +46,11 @@ class KioskSettings(context: Context) {
     var shutterLeadMs by int("shutter_lead_ms", 250)
     /** Otočení obrazu zrcadlovky (0/90/180/270) – když je fotoaparát namontovaný na výšku. */
     var canonRotation by int("canon_rotation", 0)
+    /**
+     * Otočení JEN živého náhledu vestavěné kamery Androidu (0/90/180/270). Fotka se tím nemění.
+     * Výchozí 180: na automatu byl náhled vestavěné kamery vzhůru nohama, i když fotka byla správně.
+     */
+    var previewRotation by int("preview_rotation", 180)
     /** Zrcadlovka uloží fotku i na SD kartu (pomalejší; jinak jen RAM → rovnou do aplikace). */
     var canonSaveToCard by bool("canon_save_to_card", false)
 
@@ -55,17 +60,24 @@ class KioskSettings(context: Context) {
     var printerUrl by string("printer_url", "")
     var printerName by string("printer_name", "")
     var printMaxCopies by int("print_max_copies", 5)
+    /** Model tiskárny – určuje formát 10×15: selphy_cp1500 (100×148 mm), dnp_qw410 / generic (4×6″). */
+    var printerModel by string("printer_model", "generic")
 
     var logoOnScreen by bool("logo_on_screen", true)
     var logoOnPhoto by bool("logo_on_photo", true)
-    /** TL, TR, BL, BR (roh fotky). */
+    /** TL, TC, TR, BL, BC, BR (roh nebo střed horního/dolního okraje fotky). */
     var logoPosition by string("logo_position", "BR")
+    /** Které logo: none, custom (nahrané), builtin:allin, builtin:satisfactory, builtin:watt. */
+    var logoChoice by string("logo_choice", "custom")
     /** Šířka loga v procentech šířky fotky. */
     var logoSize by int("logo_size", 18)
 
     var githubRepo by string("github_repo", BuildConfig.GITHUB_REPO)
     /** Jen pro soukromý repozitář: token s právem číst obsah. */
     var githubToken by string("github_token", "")
+
+    /** Okamžitě a trvale uloží nový PIN (commit, ne apply – ať přežije i okamžitý restart). */
+    fun savePin(newPin: String): Boolean = prefs.edit().putString("pin", newPin).commit()
 
     var sentCount by int("sent_count", 0)
     var printCount by int("print_count", 0)

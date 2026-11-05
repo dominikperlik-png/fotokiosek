@@ -64,6 +64,8 @@ import cz.fotokiosek.IppClient
 import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
 import cz.fotokiosek.PhotoStore
+import cz.fotokiosek.PrintLayout
+import cz.fotokiosek.PrintMedia
 import cz.fotokiosek.RateLimit
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.SystemPrint
@@ -185,9 +187,11 @@ fun KioskApp(
     fun print(photo: Bitmap, copies: Int) {
         printFor = null
         val job = "Fotokiosek ${System.currentTimeMillis() / 1000}"
+        // Vždy 10×15 cm při 300 DPI, bez okrajů (rozměr podle modelu tiskárny).
+        val media = PrintMedia.forModel(settings.printerModel)
         if (settings.printMode == "system") {
             // Na některých deskách tiskový systém Androidu chybí – chyba nesmí shodit kiosek.
-            runCatching { (context as? Activity)?.let { SystemPrint.print(it, photo, copies, job) } }
+            runCatching { (context as? Activity)?.let { SystemPrint.print(it, PrintLayout.fit(photo, media), copies, job, media) } }
                 .onSuccess { settings.printCount += copies }
                 .onFailure { e ->
                     AppLog.e("Tisk", "Systémový tisk nejde spustit", e)
@@ -205,10 +209,10 @@ fun KioskApp(
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 val jpeg = ByteArrayOutputStream().use { out ->
-                    photo.compress(Bitmap.CompressFormat.JPEG, 93, out)
+                    PrintLayout.fit(photo, media).compress(Bitmap.CompressFormat.JPEG, 95, out)
                     out.toByteArray()
                 }
-                IppClient.print(settings.printerUrl, jpeg, copies, job)
+                IppClient.print(settings.printerUrl, jpeg, copies, job, media)
             }
             printing = false
             if (result.ok) {

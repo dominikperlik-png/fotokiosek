@@ -312,6 +312,8 @@ pin=4826</pre></div>
   <tr><th>Problém</th><th>Co s tím</th></tr>
   <tr><td>Na obrazovce je „Kamera nenalezena“</td><td>Android tu USB kameru sám nevidí. Pošli mi <code>diagnostika.txt</code>, doplním podporu USB (UVC) kamer.</td></tr>
   <tr><td>Obraz je černobílý nebo tmavý</td><td>Je vybraná infračervená kamera. V menu správce vyber jinou.</td></tr>
+  <tr><td>Náhled vestavěné kamery je otočený</td><td>Menu správce → Kamera → <em>Otočení živého náhledu</em>: vyber hodnotu, při které náhled odpovídá fotce (výchozí 180°). Fotka se tím nemění.</td></tr>
+  <tr><td>Zapomenutý / změna PINu</td><td>Menu správce → Kiosek → <em>Změna PINu</em>: zadej nový PIN dvakrát a klepni na Změnit PIN. Zapomenutý PIN jde obnovit instalací s <code>pin=</code> v <code>config.properties</code>.</td></tr>
   <tr><td>USB webkamera se nepoužívá</td><td>Menu správce → Kamera → vyber <em>Automaticky (USB webkamera přednostně)</em> nebo kameru označenou „externí USB“ a dej Uložit. Když tam není, klepni na Systém → <em>Restartovat aplikaci</em>. Když ji ani pak Android neukáže, systém automatu USB kamery nepodporuje – pošli mi <code>diagnostika.txt</code>.</td></tr>
   <tr><td>Zrcadlovka cvakne, ale fotka nepřijde</td><td>Podívej se do menu → Log: řádky „Canon“ ukážou, co fotoaparát hlásil. Zkontroluj kvalitu JPEG (ne jen RAW) a ruční ostření.</td></tr>
   <tr><td>Obraz zrcadlovky je bokem</td><td>Menu správce → Kamera → <em>Otočení obrazu zrcadlovky</em>. Náhled i fotka se otočí stejně.</td></tr>
@@ -347,6 +349,12 @@ pin=4826</pre></div>
 <p class="muted">Zdroj obrazu „Automaticky“ použije zrcadlovku, když je připojená, jinak kameru automatu. Když si fotoaparát zabere systém Androidu (aplikace „MTP host“), fotokiosek ji jako správce zařízení sám skryje a připojí se znovu.</p>
 
 <h2 id="tisk">Tisk fotek</h2>
+<p>Fotka se vždy tiskne jako <strong>10×15 cm bez okrajů</strong> (300 DPI). V menu → Tisk vyber model: <strong>Canon SELPHY CP1500</strong> (papír 100×148 mm), <strong>DNP DP-QW410</strong> nebo <strong>Obecná 10×15</strong>.</p>
+<ul>
+  <li><strong>SELPHY CP1500:</strong> připoj ji k Wi-Fi (menu tiskárny → Nastavení Wi-Fi) a zvol „Síťová tiskárna“. Tiskne hned, bez dialogů.</li>
+  <li><strong>DNP DP-QW410:</strong> má jen USB a Android pro ni nemá ovladač. Spolehlivě funguje přes malý tiskový server (např. Raspberry Pi s CUPS), který ji zpřístupní v síti – pak „Síťová tiskárna“.</li>
+  <li>Tiskárnu připojenou do USB automatu menu pozná a ukáže. Tisknout na ni jde jen přes tiskovou službu Androidu (režim „Systémový tisk“), pokud ji výrobce nabízí.</li>
+</ul>
 <p>Když je tisk zapnutý, je u hotové fotky tlačítko <strong>Vytisknout</strong> vedle „Poslat na e-mail“. Zákazník vybere počet kopií (− / +, max. podle nastavení) a potvrdí.</p>
 <ul class="check">
   <li><input type="checkbox" data-id="t1"> Tiskárnu připoj do <strong>stejné sítě</strong> jako automat (Wi-Fi nebo kabel). Funguje skoro každá síťová tiskárna z posledních let (AirPrint / Mopria / IPP Everywhere), fototiskárny třeba Canon Selphy, Epson, HP.</li>
@@ -357,6 +365,7 @@ pin=4826</pre></div>
 
 <h2 id="logo">Vlastní logo</h2>
 <ul>
+  <li>V aplikaci jsou přibalená tři loga (Satisfactory, WATT a proužek klubů Plzeň). V menu správce → Logo stačí klepnout na náhled, nebo vybrat „Bez loga“. Změna platí hned.</li>
   <li>Menu správce → Logo → <strong>Nahrát logo</strong>: otevře se výběr souboru Androidu (USB flashka, Stažené soubory…). PNG s průhledností, JPG nebo SVG.</li>
   <li>Nebo dej soubor <code>logo.png</code> (nebo <code>logo.svg</code>) do složky vedle instalace a spusť instalaci – nahraje ho sama.</li>
   <li>Logo se ukazuje na úvodní obrazovce a vkládá do rohu fotky (do e-mailu i na tisk). Roh a velikost nastavíš v menu, jde ho i smazat nebo nahradit.</li>

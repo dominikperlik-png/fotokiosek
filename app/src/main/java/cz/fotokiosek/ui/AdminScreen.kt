@@ -61,6 +61,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.work.WorkManager
@@ -75,6 +76,7 @@ import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.Updater
+import cz.fotokiosek.UsbPrinters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -186,7 +188,13 @@ fun AdminScreen(
     var countdown by remember { mutableStateOf(settings.countdown.toString()) }
     var idleTimeout by remember { mutableStateOf(settings.idleTimeout.toString()) }
     var keepDays by remember { mutableStateOf(settings.keepDays.toString()) }
-    var pin by remember { mutableStateOf(settings.pin) }
+    var newPin by remember { mutableStateOf("") }
+    var newPin2 by remember { mutableStateOf("") }
+    var pinMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var previewRotation by remember { mutableIntStateOf(settings.previewRotation) }
+    var logoChoice by remember { mutableStateOf(settings.logoChoice) }
+    var printerModel by remember { mutableStateOf(settings.printerModel) }
+    val usbPrinters = remember { UsbPrinters.list(context) }
     // --- logo ---
     var logoOnScreen by remember { mutableStateOf(settings.logoOnScreen) }
     var logoOnPhoto by remember { mutableStateOf(settings.logoOnPhoto) }
@@ -258,7 +266,8 @@ fun AdminScreen(
         settings.countdown = countdown.toIntOrNull()?.coerceIn(0, 10) ?: 3
         settings.idleTimeout = idleTimeout.toIntOrNull()?.coerceIn(10, 600) ?: 45
         settings.keepDays = keepDays.toIntOrNull()?.coerceIn(1, 365) ?: 7
-        if (pin.length >= 4) settings.pin = pin
+        settings.previewRotation = previewRotation
+        settings.printerModel = printerModel
         settings.logoOnScreen = logoOnScreen
         settings.logoOnPhoto = logoOnPhoto
         settings.logoPosition = logoPosition
@@ -418,6 +427,18 @@ fun AdminScreen(
                     color = Color.White.copy(alpha = 0.6f),
                 )
             }
+            if (cameraSource != "canon") {
+                Text("Otočení živého náhledu vestavěné kamery", fontSize = 20.sp)
+                ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, previewRotation.toString()) {
+                    previewRotation = it.toInt()
+                    camera.android.previewRotation = previewRotation // hned vidět za menu po zavření
+                }
+                Text(
+                    "Otáčí jen obraz na obrazovce před focením, fotka zůstává, jak je. Vyber hodnotu, při které je náhled stejně jako výsledná fotka. USB webkamery se neotáčí.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+            }
             SwitchRow("Zrcadlit (jako zrcadlo)", mirror) { mirror = it }
             SwitchRow("Náhled přes celou obrazovku (fotka se ořízne stejně)", fill) { fill = it }
             Field("Předstih spouště v ms (0–900)", shutterLead, number = true) { shutterLead = it.filter(Char::isDigit) }
@@ -434,40 +455,91 @@ fun AdminScreen(
             Field("Odpočet (sekundy)", countdown, number = true) { countdown = it }
             Field("Návrat na úvod po nečinnosti (sekundy)", idleTimeout, number = true) { idleTimeout = it }
             Field("Mazat fotky z kiosku po (dnech)", keepDays, number = true) { keepDays = it }
-            Field("PIN správce (min. 4 číslice)", pin, number = true) { pin = it.filter(Char::isDigit) }
+
+            Text("Změna PINu správce", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Field("Nový PIN (4–8 číslic)", newPin, number = true, password = true) { newPin = it.filter(Char::isDigit).take(8); pinMessage = null }
+            Field("Nový PIN znovu", newPin2, number = true, password = true) { newPin2 = it.filter(Char::isDigit).take(8); pinMessage = null }
+            Button(onClick = {
+                pinMessage = when {
+                    newPin.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
+                    newPin != newPin2 -> "PINy se neshodují." to false
+                    newPin == settings.pin -> "Tohle už je současný PIN." to false
+                    !settings.savePin(newPin) -> "PIN se nepodařilo uložit, zkus to znovu." to false
+                    else -> {
+                        AppLog.i("Správa", "PIN správce změněn")
+                        newPin = ""
+                        newPin2 = ""
+                        "PIN byl úspěšně změněn ✔ Platí hned – při příštím vstupu do menu zadej nový PIN." to true
+                    }
+                }
+            }) { Text("Změnit PIN") }
+            pinMessage?.let { (text, ok) ->
+                Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
+            }
 
             // ---------------------------------------------------------------- Logo
             Section("Logo")
             val logoVersion = LogoStore.version
-            val logo = remember(logoVersion) { LogoStore.load(context)?.asImageBitmap() }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Box(
-                    Modifier.size(width = 220.dp, height = 130.dp)
-                        .background(Color(0xFF555555), RoundedCornerShape(12.dp))
-                        .padding(8.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (logo != null) {
-                        Image(bitmap = logo, contentDescription = "Náhled loga", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                    } else {
-                        Text("bez loga", color = Color.White.copy(alpha = 0.6f))
-                    }
-                }
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        logoMessage = null
-                        pickLogo { uri ->
-                            if (uri != null) {
-                                scope.launch {
-                                    val r = withContext(Dispatchers.IO) { LogoStore.import(context, uri) }
-                                    logoMessage = r.fold({ "Logo uloženo ✔" }, { "Logo nejde načíst: ${it.message}" })
-                                }
+            val hasCustom = remember(logoVersion) { LogoStore.exists(context) }
+            val choices = buildList {
+                add("none" to "Bez loga")
+                LogoStore.builtins.forEach { add(it.id to it.label) }
+                if (hasCustom) add("custom" to "Vlastní (nahrané)")
+            }
+            Text("Vyber logo (projeví se hned na obrazovce i na dalších fotkách)", fontSize = 18.sp)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                choices.forEach { (id, label) ->
+                    val thumb = remember(id, logoVersion) { if (id == "none") null else LogoStore.load(context, id)?.asImageBitmap() }
+                    val selected = (if (logoChoice == "custom" && !hasCustom) "none" else logoChoice) == id
+                    Column(
+                        Modifier
+                            .width(170.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (selected) Accent else KeyColor)
+                            .clickable {
+                                logoChoice = id
+                                LogoStore.select(context, id)
+                            }
+                            .padding(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            Modifier.fillMaxWidth().height(90.dp).background(Color(0xFF555555), RoundedCornerShape(8.dp)).padding(6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (thumb != null) {
+                                Image(bitmap = thumb, contentDescription = label, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                            } else {
+                                Text("—", fontSize = 28.sp, color = Color.White.copy(alpha = 0.6f))
                             }
                         }
-                    }) { Text(if (logo == null) "Nahrát logo" else "Nahradit logo") }
-                    if (logo != null) {
-                        OutlinedButton(onClick = { LogoStore.delete(context); logoMessage = "Logo smazáno" }) { Text("Smazat logo") }
+                        Spacer(Modifier.height(6.dp))
+                        Text(label, fontSize = 16.sp, color = if (selected) Color.Black else Color.White, textAlign = TextAlign.Center)
                     }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = {
+                    logoMessage = null
+                    pickLogo { uri ->
+                        if (uri != null) {
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) { LogoStore.import(context, uri) }
+                                r.onSuccess { logoChoice = "custom" }
+                                logoMessage = r.fold({ "Vlastní logo uloženo a vybráno ✔" }, { "Logo nejde načíst: ${it.message}" })
+                            }
+                        }
+                    }
+                }) { Text(if (hasCustom) "Nahradit vlastní logo" else "Nahrát vlastní logo") }
+                if (hasCustom) {
+                    OutlinedButton(onClick = {
+                        LogoStore.delete(context)
+                        if (logoChoice == "custom") logoChoice = "none"
+                        logoMessage = "Vlastní logo smazáno"
+                    }) { Text("Smazat vlastní logo") }
                 }
             }
             Text(
@@ -481,7 +553,10 @@ fun AdminScreen(
             if (logoOnPhoto) {
                 Text("Umístění na fotce", fontSize = 20.sp)
                 ChoiceRow(
-                    listOf("TL" to "vlevo nahoře", "TR" to "vpravo nahoře", "BL" to "vlevo dole", "BR" to "vpravo dole"),
+                    listOf(
+                        "TL" to "vlevo nahoře", "TC" to "nahoře uprostřed", "TR" to "vpravo nahoře",
+                        "BL" to "vlevo dole", "BC" to "dole uprostřed", "BR" to "vpravo dole",
+                    ),
                     logoPosition,
                 ) { logoPosition = it }
                 Field("Velikost loga (% šířky fotky, 5–60)", logoSize, number = true) { logoSize = it.filter(Char::isDigit) }
@@ -491,8 +566,29 @@ fun AdminScreen(
             Section("Tisk")
             SwitchRow("Povolit tisk (tlačítko „Vytisknout“ u fotky)", printEnabled) { printEnabled = it }
             if (printEnabled) {
+                Text("Model tiskárny (formát vždy 10×15 cm, 300 DPI, bez okrajů)", fontSize = 20.sp)
                 ChoiceRow(
-                    listOf("ipp" to "Síťová tiskárna (doporučeno)", "system" to "Systémový tisk Androidu"),
+                    listOf("selphy_cp1500" to "Canon SELPHY CP1500", "dnp_qw410" to "DNP DP-QW410", "generic" to "Obecná 10×15"),
+                    printerModel,
+                ) { printerModel = it }
+                Text(
+                    when (printerModel) {
+                        "selphy_cp1500" -> "SELPHY: papír KP-108IN (100×148 mm). Nejspolehlivější je připojit ji k Wi-Fi a zvolit „Síťová tiskárna“ – tiskne pak hned, bez dialogů."
+                        "dnp_qw410" -> "DNP DP-QW410 má jen USB a Android pro ni nemá ovladač. Funguje přes tiskový server (např. Raspberry Pi s CUPS) jako „Síťová tiskárna“, nebo přes tiskovou službu Androidu, pokud ji výrobce nabízí."
+                        else -> "Fotka se připraví jako 4×6″ (1800×1200 px) a vyplní celý papír."
+                    },
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                if (usbPrinters.isNotEmpty()) {
+                    Text(
+                        "Přes USB je připojená tiskárna: ${usbPrinters.joinToString()}. Android na ni umí tisknout jen přes tiskovou službu – zvol „Systémový tisk Androidu“.",
+                        fontSize = 16.sp,
+                        color = Accent,
+                    )
+                }
+                ChoiceRow(
+                    listOf("ipp" to "Síťová tiskárna (doporučeno)", "system" to "Systémový tisk Androidu (i USB)"),
                     printMode,
                 ) { printMode = it }
                 if (printMode == "ipp") {

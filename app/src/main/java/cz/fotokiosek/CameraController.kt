@@ -111,6 +111,7 @@ class CameraController(private val activity: ComponentActivity, private val sett
         android.onFrame = { bmp -> if (source == Source.ANDROID) postFrame(bmp) }
         android.cameraId = settings.cameraId
         android.mirror = settings.mirror
+        android.previewRotation = settings.previewRotation
         android.fill = settings.fillScreen
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
@@ -131,6 +132,7 @@ class CameraController(private val activity: ComponentActivity, private val sett
     fun applySettings() {
         android.cameraId = settings.cameraId
         android.mirror = settings.mirror
+        android.previewRotation = settings.previewRotation
         android.fill = settings.fillScreen
         reconnect()
     }

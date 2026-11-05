@@ -23,7 +23,18 @@ import kotlin.math.max
 object LogoStore {
     private const val TAG = "Logo"
     private const val MAX_SIDE = 1600
+    /** Načtené logo a pro kterou volbu platí. */
     private var cached: Bitmap? = null
+    private var cachedChoice: String? = null
+
+    /** Loga přibalená přímo v aplikaci (složka Loga v projektu → res/drawable-nodpi). */
+    class Builtin(val id: String, val label: String, val resId: Int)
+
+    val builtins = listOf(
+        Builtin("builtin:satisfactory", "Satisfactory", R.drawable.logo_satisfactory),
+        Builtin("builtin:watt", "WATT", R.drawable.logo_watt),
+        Builtin("builtin:allin", "Kluby Plzeň", R.drawable.logo_allin),
+    )
 
     /** Zvyšuje se při každé změně loga – UI podle toho překreslí. */
     var version by mutableIntStateOf(0)
@@ -33,11 +44,37 @@ object LogoStore {
 
     fun exists(context: Context) = file(context).exists()
 
-    fun load(context: Context): Bitmap? {
-        cached?.let { return it }
-        val f = file(context)
-        if (!f.exists()) return null
-        return BitmapFactory.decodeFile(f.absolutePath)?.also { cached = it }
+    /** Logo podle aktuální volby v nastavení (nebo null = bez loga). */
+    fun load(context: Context): Bitmap? = load(context, KioskSettings(context).logoChoice)
+
+    /** Logo pro konkrétní volbu: none / custom / builtin:… */
+    @Synchronized
+    fun load(context: Context, choice: String): Bitmap? {
+        if (choice == cachedChoice) return cached
+        val bitmap = when {
+            choice == "none" -> null
+            choice.startsWith("builtin:") -> builtins.firstOrNull { it.id == choice }?.let { b ->
+                BitmapFactory.decodeResource(context.resources, b.resId, BitmapFactory.Options().apply { inScaled = false })
+            }
+            else -> file(context).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
+        }
+        cached = bitmap
+        cachedChoice = choice
+        return bitmap
+    }
+
+    /** Přepne logo (okamžitě se projeví na obrazovce i na dalších fotkách). */
+    fun select(context: Context, choice: String) {
+        KioskSettings(context).logoChoice = choice
+        invalidate()
+        AppLog.i(TAG, "Vybráno logo: $choice")
+    }
+
+    @Synchronized
+    private fun invalidate() {
+        cached = null
+        cachedChoice = null
+        version++
     }
 
     /** Nahraje logo z vybraného souboru (PNG, JPG, WEBP nebo SVG). */
@@ -67,8 +104,9 @@ object LogoStore {
 
     fun delete(context: Context) {
         file(context).delete()
-        cached = null
-        version++
+        val settings = KioskSettings(context)
+        if (settings.logoChoice == "custom") settings.logoChoice = "none"
+        invalidate()
         AppLog.i(TAG, "Logo smazáno")
     }
 
@@ -76,8 +114,9 @@ object LogoStore {
         val tmp = File(file(context).parentFile, "logo.tmp")
         FileOutputStream(tmp).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         tmp.renameTo(file(context))
-        cached = bitmap
-        version++
+        // Nahrané logo se rovnou vybere.
+        KioskSettings(context).logoChoice = "custom"
+        invalidate()
         AppLog.i(TAG, "Logo uloženo (${bitmap.width}×${bitmap.height})")
     }
 
@@ -115,7 +154,11 @@ object LogoStore {
         val targetW = result.width * settings.logoSize.coerceIn(5, 60) / 100f
         val targetH = targetW * logo.height / logo.width
         val margin = result.width * 0.03f
-        val left = if (settings.logoPosition.endsWith("L")) margin else result.width - margin - targetW
+        val left = when {
+            settings.logoPosition.endsWith("L") -> margin
+            settings.logoPosition.endsWith("C") -> (result.width - targetW) / 2f
+            else -> result.width - margin - targetW
+        }
         val top = if (settings.logoPosition.startsWith("T")) margin else result.height - margin - targetH
         canvas.drawBitmap(logo, null, RectF(left, top, left + targetW, top + targetH), Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         return result

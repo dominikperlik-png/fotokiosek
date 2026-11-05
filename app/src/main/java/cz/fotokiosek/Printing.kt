@@ -24,6 +24,61 @@ import java.net.URL
 import java.nio.ByteBuffer
 import kotlin.math.max
 
+/**
+ * Fotka 10×15 cm (300 DPI, bez okrajů). Rozměry podle modelu tiskárny:
+ * Canon SELPHY CP1500 = papír 100×148 mm (KP-108IN), DNP DP-QW410 / obecná = 4×6″ (101,6×152,4 mm).
+ */
+enum class PrintMedia(
+    val label: String,
+    /** Rozměr v setinách mm (IPP media-size), kratší × delší strana. */
+    val widthHmm: Int,
+    val heightHmm: Int,
+    /** Pixely při 300 DPI, kratší × delší strana. */
+    val shortPx: Int,
+    val longPx: Int,
+    /** IPP název média (PWG). */
+    val ippName: String,
+) {
+    POSTCARD_100x148("10×15 cm (100×148 mm)", 10000, 14800, 1181, 1748, "jpn_hagaki_100x148mm"),
+    INDEX_4x6("10×15 cm (4×6″)", 10160, 15240, 1200, 1800, "na_index-4x6_4x6in");
+
+    val androidSize: PrintAttributes.MediaSize
+        get() = if (this == POSTCARD_100x148) PrintAttributes.MediaSize.JPN_HAGAKI else PrintAttributes.MediaSize.NA_INDEX_4X6
+
+    companion object {
+        fun forModel(model: String) = if (model == "selphy_cp1500") POSTCARD_100x148 else INDEX_4x6
+    }
+}
+
+/** Úprava fotky na tiskový formát: pevně 10×15 při 300 DPI, vyplnit celou plochu (ořez uprostřed, žádné bílé okraje). */
+object PrintLayout {
+    fun fit(photo: Bitmap, media: PrintMedia): Bitmap {
+        val landscape = photo.width >= photo.height
+        val w = if (landscape) media.longPx else media.shortPx
+        val h = if (landscape) media.shortPx else media.longPx
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(out)
+        canvas.drawColor(android.graphics.Color.WHITE)
+        val scale = max(w.toFloat() / photo.width, h.toFloat() / photo.height)
+        val m = Matrix().apply {
+            postScale(scale, scale)
+            postTranslate((w - photo.width * scale) / 2f, (h - photo.height * scale) / 2f)
+        }
+        canvas.drawBitmap(photo, m, android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
+        return out
+    }
+}
+
+/** Tiskárny připojené přímo do USB automatu (třída Printer). */
+object UsbPrinters {
+    fun list(context: Context): List<String> {
+        val usb = context.getSystemService(Context.USB_SERVICE) as? android.hardware.usb.UsbManager ?: return emptyList()
+        return usb.deviceList.values.filter { d ->
+            (0 until d.interfaceCount).any { d.getInterface(it).interfaceClass == android.hardware.usb.UsbConstants.USB_CLASS_PRINTER }
+        }.map { it.productName ?: "USB tiskárna ${it.vendorId}:${it.productId}" }
+    }
+}
+
 /** Tiskárna nalezená v síti. */
 data class FoundPrinter(val name: String, val url: String)
 
@@ -34,19 +89,29 @@ data class FoundPrinter(val name: String, val url: String)
 object IppClient {
     private const val TAG = "Tisk"
 
-    class Result(val ok: Boolean, val message: String, val attributes: Map<String, List<Any>> = emptyMap())
+    class Result(val ok: Boolean, val message: String, val attributes: Map<String, List<Any>> = emptyMap(), val status: Int = 0)
 
-    fun print(printerUrl: String, jpeg: ByteArray, copies: Int, jobName: String): Result {
-        val request = ipp(operation = 0x0002, printerUrl = printerUrl) {
+    /**
+     * Tisk JPEG fotky. S [media] se pošle i přesný formát papíru a nulové okraje (bez okrajů);
+     * když to tiskárna neumí (odmítne atributy), zkusí se to znovu jen s `print-scaling=fill`.
+     */
+    fun print(printerUrl: String, jpeg: ByteArray, copies: Int, jobName: String, media: PrintMedia? = null): Result {
+        fun request(withMedia: Boolean) = ipp(operation = 0x0002, printerUrl = printerUrl) {
             operationAttr(0x42, "job-name", jobName)
             operationAttr(0x49, "document-format", "image/jpeg")
             beginGroup(0x02) // job attributes
             intAttr("copies", copies.coerceIn(1, 99))
             keywordAttr("print-scaling", "fill")
             keywordAttr("print-color-mode", "color")
+            if (withMedia && media != null) borderlessMedia(media)
         }
-        return send(printerUrl, request + jpeg).also {
-            if (it.ok) AppLog.i(TAG, "Tisk odeslán: $copies× na $printerUrl") else AppLog.e(TAG, "Tisk selhal: ${it.message}")
+        var result = send(printerUrl, request(true) + jpeg)
+        if (!result.ok && media != null && result.status in setOf(0x0400, 0x040B)) {
+            AppLog.w(TAG, "Tiskárna odmítla formát/okraje (0x${result.status.toString(16)}), tisknu bez nich")
+            result = send(printerUrl, request(false) + jpeg)
+        }
+        return result.also {
+            if (it.ok) AppLog.i(TAG, "Tisk odeslán: $copies× ${media?.label ?: ""} na $printerUrl") else AppLog.e(TAG, "Tisk selhal: ${it.message}")
         }
     }
 
@@ -126,7 +191,7 @@ object IppClient {
         }
         val message = attrs["status-message"]?.firstOrNull()?.toString().orEmpty()
         return if (status < 0x0100) {
-            Result(true, "OK", attrs)
+            Result(true, "OK", attrs, status)
         } else {
             val hint = when (status) {
                 0x040A -> "tiskárna nepodporuje JPEG – použij systémový tisk Androidu"
@@ -134,7 +199,7 @@ object IppClient {
                 0x0506 -> "tiskárna nepřijímá úlohy"
                 else -> "kód 0x${status.toString(16)}"
             }
-            Result(false, "Tiskárna úlohu odmítla: $hint ${message}".trim(), attrs)
+            Result(false, "Tiskárna úlohu odmítla: $hint ${message}".trim(), attrs, status)
         }
     }
 
@@ -187,6 +252,35 @@ object IppClient {
             out.write(name.toByteArray(Charsets.UTF_8))
             out.writeShort(4)
             out.writeInt(value)
+        }
+
+        /**
+         * media-col: přesný rozměr papíru + všechny okraje 0 = tisk bez okrajů (IPP „borderless“).
+         * Kolekce: begCollection (0x34) → memberAttrName (0x4A) + hodnota → endCollection (0x37).
+         */
+        fun borderlessMedia(media: PrintMedia) {
+            raw(0x34, "media-col", ByteArray(0))
+            member("media-size")
+            raw(0x34, "", ByteArray(0))
+            member("x-dimension"); int("", media.widthHmm)
+            member("y-dimension"); int("", media.heightHmm)
+            raw(0x37, "", ByteArray(0))
+            for (side in listOf("media-top-margin", "media-bottom-margin", "media-left-margin", "media-right-margin")) {
+                member(side); int("", 0)
+            }
+            raw(0x37, "", ByteArray(0))
+        }
+
+        private fun member(name: String) = raw(0x4A, "", name.toByteArray(Charsets.UTF_8))
+        private fun int(name: String, value: Int) = raw(0x21, name, byteArrayOf((value ushr 24).toByte(), (value ushr 16).toByte(), (value ushr 8).toByte(), value.toByte()))
+
+        private fun raw(tag: Int, name: String, value: ByteArray) {
+            val n = name.toByteArray(Charsets.UTF_8)
+            out.writeByte(tag)
+            out.writeShort(n.size)
+            out.write(n)
+            out.writeShort(value.size)
+            out.write(value)
         }
 
         fun attr(tag: Int, name: String, value: String) {
@@ -276,11 +370,12 @@ class PrinterDiscovery(context: Context) {
  * Počet kopií posíláme jako stejný počet stránek, ať ho zákazník nemusí nastavovat znovu.
  */
 object SystemPrint {
-    fun print(activity: Activity, photo: Bitmap, copies: Int, jobName: String) {
+    fun print(activity: Activity, photo: Bitmap, copies: Int, jobName: String, media: PrintMedia = PrintMedia.INDEX_4x6) {
         val manager = activity.getSystemService(Context.PRINT_SERVICE) as PrintManager
         val attributes = PrintAttributes.Builder()
             .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
-            .setMediaSize(if (photo.width >= photo.height) PrintAttributes.MediaSize.NA_INDEX_4X6.asLandscape() else PrintAttributes.MediaSize.NA_INDEX_4X6)
+            .setMediaSize(if (photo.width >= photo.height) media.androidSize.asLandscape() else media.androidSize.asPortrait())
+            .setResolution(PrintAttributes.Resolution("300dpi", "300 DPI", 300, 300))
             .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
             .build()
         Kiosk.pauseLock(activity) // dialog patří systému
