@@ -69,6 +69,10 @@ jobs:
       - name: Chyby sestavení do souhrnu
         if: failure()
         run: |
+          # Chyby Kotlinu jako anotace – jsou vidět i přes veřejné API bez přihlášení
+          grep -E '^e: ' build.log | head -n 30 | while IFS= read -r line; do
+            echo "::error title=Kotlin::${line#e: }"
+          done || true
           {
             echo '## Sestavení selhalo'
             echo '```'

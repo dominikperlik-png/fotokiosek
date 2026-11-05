@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
+import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
@@ -307,8 +308,8 @@ class CameraController(private val activity: ComponentActivity, private val sett
 
     /** USB zařízení třídy Video (UVC) – webkamera. */
     private fun isWebcam(device: UsbDevice): Boolean =
-        device.deviceClass == android.hardware.usb.UsbConstants.USB_CLASS_VIDEO ||
-            (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == android.hardware.usb.UsbConstants.USB_CLASS_VIDEO }
+        device.deviceClass == UsbConstants.USB_CLASS_VIDEO ||
+            (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == UsbConstants.USB_CLASS_VIDEO }
 
     /** Připojené USB webkamery podle USB (i ty, které Android jako kameru nezná) – pro diagnostiku v menu. */
     fun usbWebcams(): List<String> = usb.deviceList.values.filter { isWebcam(it) }.map { it.productName ?: "USB kamera ${it.vendorId}:${it.productId}" }
