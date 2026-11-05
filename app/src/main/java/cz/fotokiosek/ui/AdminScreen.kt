@@ -493,9 +493,9 @@ fun AdminScreen(
             ) {
                 choices.forEach { (id, label) ->
                     // Načíst na pozadí a zmenšené – velké PNG by menu na pomalé desce zaseklo.
-                    val thumb by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, id, logoVersion) {
+                    val thumb = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, id, logoVersion) {
                         value = withContext(Dispatchers.IO) { LogoStore.thumbnail(context, id)?.asImageBitmap() }
-                    }
+                    }.value
                     val selected = (if (logoChoice == "custom" && !hasCustom) "none" else logoChoice) == id
                     Column(
                         Modifier
