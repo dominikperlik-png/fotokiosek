@@ -84,11 +84,18 @@ class CameraController(private val activity: ComponentActivity, private val sett
                     AppLog.i(TAG, "Připojeno USB: ${device.productName}")
                     permissionAsked = false
                     reconnect()
+                } else if (device != null && isWebcam(device)) {
+                    AppLog.i(TAG, "Připojena USB webkamera: ${device.productName}")
+                    // Android ji zaregistruje chvíli po připojení – pak ji CameraX nabídne jako „externí“.
+                    main.postDelayed({ android.bind() }, 2500)
                 }
                 UsbManager.ACTION_USB_DEVICE_DETACHED -> if (device != null && device.deviceName == canon?.device?.deviceName) {
                     AppLog.i(TAG, "Zrcadlovka odpojena")
                     disconnectCanon("Odpojena (kabel / vypnutá)")
                     applySource()
+                } else if (device != null && isWebcam(device)) {
+                    AppLog.i(TAG, "Odpojena USB webkamera: ${device.productName}")
+                    main.postDelayed({ android.bind() }, 1500)
                 }
                 ACTION_USB_PERMISSION -> {
                     val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
@@ -154,7 +161,7 @@ class CameraController(private val activity: ComponentActivity, private val sett
                 return@launch
             }
             post { canonStatus = "Připojuji ${device.productName ?: "Canon"}…" }
-            var cam = CanonCamera(usb, device)
+            var cam = CanonCamera(usb, device, settings.canonSaveToCard)
             try {
                 try {
                     cam.open()
@@ -163,7 +170,7 @@ class CameraController(private val activity: ComponentActivity, private val sett
                     AppLog.w(TAG, "První pokus o připojení selhal: ${e.message}")
                     if (withContext(Dispatchers.Main) { Kiosk.releaseUsbFromSystem(activity) }) {
                         delay(1500)
-                        cam = CanonCamera(usb, device)
+                        cam = CanonCamera(usb, device, settings.canonSaveToCard)
                         cam.open()
                     } else throw e
                 }
@@ -297,6 +304,14 @@ class CameraController(private val activity: ComponentActivity, private val sett
         else intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
 
     fun dispose() = scope.cancel()
+
+    /** USB zařízení třídy Video (UVC) – webkamera. */
+    private fun isWebcam(device: UsbDevice): Boolean =
+        device.deviceClass == android.hardware.usb.UsbConstants.USB_CLASS_VIDEO ||
+            (0 until device.interfaceCount).any { device.getInterface(it).interfaceClass == android.hardware.usb.UsbConstants.USB_CLASS_VIDEO }
+
+    /** Připojené USB webkamery podle USB (i ty, které Android jako kameru nezná) – pro diagnostiku v menu. */
+    fun usbWebcams(): List<String> = usb.deviceList.values.filter { isWebcam(it) }.map { it.productName ?: "USB kamera ${it.vendorId}:${it.productId}" }
 
     companion object {
         private const val TAG = "Kamera"

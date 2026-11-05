@@ -65,7 +65,13 @@ object MailDiagnostics {
             steps += Step("Nastavení", false, problems.joinToString(", "), "Doplň údaje v sekci E-mail nebo klepni na předvolbu Gmail / Seznam / Brevo.")
             return finish()
         }
-        steps += Step("Nastavení", true, "${a.host}:${a.port}, ${a.security}", gmailHint)
+        val fromEmail = settings.fromAddress.trim().ifEmpty { a.user }
+        val fromDomain = fromEmail.substringAfter('@', "").lowercase()
+        val userDomain = a.user.substringAfter('@', "").lowercase()
+        val domainHint = if (fromDomain.isNotEmpty() && userDomain.isNotEmpty() && fromDomain != userDomain) {
+            "Odesílatel ($fromEmail) je z jiné domény než přihlašovací účet (${a.user}). Funguje jen, když je to u poskytovatele povolený alias – jinak server e-mail odmítne nebo skončí ve spamu."
+        } else null
+        steps += Step("Nastavení", true, "${a.host}:${a.port}, ${a.security}, odesílatel $fromEmail", listOfNotNull(gmailHint, domainHint).joinToString(" ").ifEmpty { null })
 
         // 2) DNS
         val address = try {

@@ -32,6 +32,8 @@ class KioskSettings(context: Context) {
     var smtpPassword by string("smtp_password", "")
     var fromAddress by string("from_address", "")
     var fromName by string("from_name", "Fotokoutek")
+    /** Kam má zákazník odpovídat (prázdné = adresa odesílatele). */
+    var replyTo by string("reply_to", "")
     var subject by string("subject", "Tvoje fotka z fotokoutku")
     var body by string("body", "Ahoj,\n\nv příloze posíláme tvoji fotku z fotokoutku.\n\nDíky a měj se hezky!")
 
@@ -44,6 +46,8 @@ class KioskSettings(context: Context) {
     var shutterLeadMs by int("shutter_lead_ms", 250)
     /** Otočení obrazu zrcadlovky (0/90/180/270) – když je fotoaparát namontovaný na výšku. */
     var canonRotation by int("canon_rotation", 0)
+    /** Zrcadlovka uloží fotku i na SD kartu (pomalejší; jinak jen RAM → rovnou do aplikace). */
+    var canonSaveToCard by bool("canon_save_to_card", false)
 
     var printEnabled by bool("print_enabled", false)
     /** ipp = síťová tiskárna přímo (bez dialogů), system = tiskový dialog Androidu. */

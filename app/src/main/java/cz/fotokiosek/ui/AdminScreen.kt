@@ -179,6 +179,7 @@ fun AdminScreen(
     var mirror by remember { mutableStateOf(settings.mirror) }
     var fill by remember { mutableStateOf(settings.fillScreen) }
     var canonRotation by remember { mutableIntStateOf(settings.canonRotation) }
+    var canonSaveToCard by remember { mutableStateOf(settings.canonSaveToCard) }
     var shutterLead by remember { mutableStateOf(settings.shutterLeadMs.toString()) }
     // --- kiosek ---
     var welcome by remember { mutableStateOf(settings.welcomeText) }
@@ -210,6 +211,7 @@ fun AdminScreen(
     var trustAll by remember { mutableStateOf(settings.smtpTrustAll) }
     var fromAddress by remember { mutableStateOf(settings.fromAddress) }
     var fromName by remember { mutableStateOf(settings.fromName) }
+    var replyTo by remember { mutableStateOf(settings.replyTo) }
     var subject by remember { mutableStateOf(settings.subject) }
     var body by remember { mutableStateOf(settings.body) }
     var mailTesting by remember { mutableStateOf(false) }
@@ -225,6 +227,8 @@ fun AdminScreen(
     var showLog by remember { mutableStateOf(false) }
     var logText by remember { mutableStateOf("") }
     val cameras = remember { camera.android.cameras() }
+    val usbWebcams = remember { camera.usbWebcams() }
+    val androidSeesExternal = remember { camera.android.hasExternal() }
     val isOwner = remember { Kiosk.isDeviceOwner(context) }
     val discovery = remember { PrinterDiscovery(context) }
 
@@ -248,6 +252,7 @@ fun AdminScreen(
         settings.mirror = mirror
         settings.fillScreen = fill
         settings.canonRotation = canonRotation
+        settings.canonSaveToCard = canonSaveToCard
         settings.shutterLeadMs = shutterLead.toIntOrNull()?.coerceIn(0, 900) ?: 250
         settings.welcomeText = welcome
         settings.countdown = countdown.toIntOrNull()?.coerceIn(0, 10) ?: 3
@@ -271,6 +276,7 @@ fun AdminScreen(
         settings.smtpTrustAll = trustAll
         settings.fromAddress = fromAddress.trim()
         settings.fromName = fromName
+        settings.replyTo = replyTo.trim()
         settings.subject = subject
         settings.body = body
         settings.githubRepo = githubRepo.trim()
@@ -375,12 +381,28 @@ fun AdminScreen(
                 if (cameras.isEmpty()) {
                     Text("Android nevidí žádnou kameru. Pošli výstup diagnostiky (diagnostika.txt).", color = Color(0xFFFF6E6E))
                 }
+                Row(
+                    Modifier.fillMaxWidth().clickable { cameraId = "" },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = cameraId.isEmpty(), onClick = { cameraId = "" })
+                    Text("Automaticky (USB webkamera přednostně) – teď: ${camera.android.activeId.ifEmpty { "?" }}", fontSize = 20.sp)
+                }
+                if (usbWebcams.isNotEmpty()) {
+                    Text(
+                        "Připojená USB webkamera: ${usbWebcams.joinToString()}" +
+                            if (androidSeesExternal) " ✔ Android ji vidí."
+                            else "\n✘ Android ji ale jako kameru nenabízí. Zkus „Restartovat aplikaci“ (Systém). Když ani pak nebude v seznamu jako „externí USB“, systém tohoto automatu USB kamery nepodporuje – pošli mi diagnostika.txt.",
+                        fontSize = 16.sp,
+                        color = if (androidSeesExternal) Color(0xFF81C784) else Color(0xFFFF6E6E),
+                    )
+                }
                 cameras.forEach { (id, label) ->
                     Row(
                         Modifier.fillMaxWidth().clickable { cameraId = id },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        RadioButton(selected = id == cameraId.ifEmpty { camera.android.activeId }, onClick = { cameraId = id })
+                        RadioButton(selected = id == cameraId, onClick = { cameraId = id })
                         Text(label, fontSize = 20.sp)
                     }
                 }
@@ -388,6 +410,13 @@ fun AdminScreen(
             if (cameraSource != "android") {
                 Text("Otočení obrazu zrcadlovky", fontSize = 20.sp)
                 ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, canonRotation.toString()) { canonRotation = it.toInt() }
+                SwitchRow("Ukládat fotky i na SD kartu ve fotoaparátu", canonSaveToCard) { canonSaveToCard = it }
+                Text(
+                    "Vypnuto = fotka jde z paměti fotoaparátu rovnou do aplikace (nejrychlejší, karta není potřeba). " +
+                        "Zapnuto = zůstane i záloha na kartě, ale přenos trvá déle. Po změně klepni na „Znovu připojit“.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
             }
             SwitchRow("Zrcadlit (jako zrcadlo)", mirror) { mirror = it }
             SwitchRow("Náhled přes celou obrazovku (fotka se ořízne stejně)", fill) { fill = it }
@@ -529,9 +558,22 @@ fun AdminScreen(
                 OutlinedButton(onClick = { host = "smtp.gmail.com"; port = "465"; security = "SSL" }) { Text("Gmail") }
                 OutlinedButton(onClick = { host = "smtp.seznam.cz"; port = "465"; security = "SSL" }) { Text("Seznam") }
                 OutlinedButton(onClick = { host = "smtp-relay.brevo.com"; port = "587"; security = "STARTTLS" }) { Text("Brevo") }
+                OutlinedButton(onClick = { host = ""; port = "587"; security = "STARTTLS" }) { Text("Vlastní / firemní") }
             }
+            Text(
+                "Firemní e-mail: server, port a zabezpečení najdeš u svého poskytovatele (např. smtp.firma.cz, M365: smtp.office365.com 587 STARTTLS). " +
+                    "Adresa odesílatele musí být schránka, do které se přihlašuješ, nebo její povolený alias – jinak server e-mail odmítne nebo skončí ve spamu.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
             Field("SMTP server", host) { host = it }
-            Field("Port", port, number = true) { port = it }
+            Field("Port (465 = SSL, 587 = STARTTLS)", port, number = true) {
+                port = it.filter(Char::isDigit)
+                when (port) {
+                    "465" -> security = "SSL"
+                    "587", "25", "2525" -> security = "STARTTLS"
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 listOf("SSL", "STARTTLS", "NONE").forEach { option ->
                     RadioButton(selected = security == option, onClick = { security = option })
@@ -541,7 +583,8 @@ fun AdminScreen(
             Field("Uživatel (přihlašovací e-mail)", user) { user = it }
             Field("Heslo (u Gmailu „heslo pro aplikace“)", password, password = true) { password = it }
             Field("Adresa odesílatele (prázdné = uživatel)", fromAddress) { fromAddress = it }
-            Field("Jméno odesílatele", fromName) { fromName = it }
+            Field("Jméno odesílatele (např. název firmy)", fromName) { fromName = it }
+            Field("Odpovědi posílat na (prázdné = adresa odesílatele)", replyTo) { replyTo = it }
             Field("Předmět", subject) { subject = it }
             Field("Text e-mailu", body, singleLine = false) { body = it }
             SwitchRow("Tolerovat neověřený certifikát (jen pro staré Androidy)", trustAll) { trustAll = it }
@@ -623,6 +666,7 @@ fun AdminScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_WIFI_SETTINGS) }) { Text("Wi-Fi") }
                 OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_SETTINGS) }) { Text("Nastavení Androidu") }
+                OutlinedButton(onClick = { save(); Kiosk.restartApp(activity) }) { Text("Restartovat aplikaci") }
             }
             if (isOwner) {
                 OutlinedButton(onClick = { confirmRemoveOwner = true }) { Text("Odebrat správce zařízení (před odinstalací)") }

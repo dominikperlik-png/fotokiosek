@@ -98,8 +98,16 @@ object Mailer {
         if (a.host.isEmpty()) throw IllegalStateException("Není vyplněný SMTP server (menu správce → E-mail).")
         val session = session(settings, debugOut)
 
+        // Odesílatel: vlastní (firemní) adresa + zobrazované jméno; prázdné = přihlašovací účet.
+        val fromEmail = settings.fromAddress.trim().ifEmpty { a.user }
+        if (fromEmail.isEmpty()) throw IllegalStateException("Chybí adresa odesílatele (vyplň Uživatele nebo Adresu odesílatele).")
+        val from = InternetAddress(fromEmail, settings.fromName.trim().ifEmpty { null }, "UTF-8")
+        val replyTo = settings.replyTo.trim().ifEmpty { fromEmail }
+
         val message = MimeMessage(session)
-        message.setFrom(InternetAddress(settings.fromAddress.trim().ifEmpty { a.user }, settings.fromName, "UTF-8"))
+        message.setFrom(from)
+        // Reply-To: kam půjde odpověď zákazníka (např. info@firma.cz místo robotické schránky).
+        message.setReplyTo(arrayOf<javax.mail.Address>(InternetAddress(replyTo, settings.fromName.trim().ifEmpty { null }, "UTF-8")))
         message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(to, true))
         message.setSubject(subject, "UTF-8")
         message.sentDate = Date()

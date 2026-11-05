@@ -15,7 +15,12 @@ import kotlin.math.max
  *
  * Fotoaparát musí být zapnutý, v režimu M/Av/Tv/P (ne video) a připojený USB kabelem.
  */
-class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
+class CanonCamera(
+    private val manager: UsbManager,
+    val device: UsbDevice,
+    /** true = fotka se uloží i na SD kartu ve fotoaparátu (pomalejší), false = jen do RAM a rovnou do aplikace. */
+    private val saveToCard: Boolean = false,
+) {
     private var ptp: PtpUsb? = null
     private val supported = mutableSetOf<Int>()
     var model: String = device.productName ?: "Canon EOS"
@@ -36,9 +41,16 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
             if (OC_EOS_SET_REMOTE_MODE in supported || supported.isEmpty()) checked(p.transaction(OC_EOS_SET_REMOTE_MODE, 1), "SetRemoteMode")
             if (OC_EOS_SET_EVENT_MODE in supported || supported.isEmpty()) checked(p.transaction(OC_EOS_SET_EVENT_MODE, 1), "SetEventMode")
             drainEvents()
-            // Fotky posílat do počítače (RAM), ne jen na kartu – a říct fotoaparátu, že máme dost místa.
-            setProp(PROP_CAPTURE_DESTINATION, 4)
+            // Cíl ukládání: 4 = do počítače (RAM fotoaparátu → aplikace), 2 = na kartu.
+            // Bez nastavení cíle některá těla po cvaknutí nic nepošlou.
+            val target = if (saveToCard) DEST_CARD else DEST_PC
+            if (!setProp(PROP_CAPTURE_DESTINATION, target) && saveToCard) {
+                AppLog.w(TAG, "Ukládání na kartu nejde nastavit, zkouším RAM")
+                setProp(PROP_CAPTURE_DESTINATION, DEST_PC)
+            }
+            // Fotoaparát musí vědět, že „počítač“ má dost místa, jinak hlásí plnou paměť a fotku nepředá.
             runCatching { p.transaction(OC_EOS_PC_HDD_CAPACITY, 0x0fffffff, 0x00001000, 0x00000001) }
+            AppLog.i(TAG, "Cíl ukládání: ${if (saveToCard) "karta" else "RAM → aplikace"}")
             AppLog.i(TAG, "Připojeno: $model, podporuje ${supported.size} příkazů")
         } catch (e: Exception) {
             close()
@@ -83,12 +95,24 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
         halfPressed = r.ok
     }
 
-    /** Vyfotí a stáhne JPEG. Vrací bajty JPEG. */
+    /** Objekt (soubor), který fotoaparát po cvaknutí nahlásil. */
+    private class NewObject(val handle: Int, val size: Long, val name: String, val format: Int, val event: Int)
+
+    /**
+     * Vyfotí a stáhne JPEG.
+     *
+     * Příčina chyby „cvakne, ale fotka nedorazí“: při ukládání do počítače (RAM) Canon nehlásí
+     * ObjectAddedEx (0xC181), ale RequestObjectTransfer (0xC186, u novějších těl 0xC1A9).
+     * Původní kód čekal jen na 0xC181/0xC1A7 → po 20 s timeout → „Fotku se nepodařilo pořídit“.
+     * Teď bereme všechny čtyři události a stahujeme až po dokončení zápisu.
+     */
     fun capture(): ByteArray {
         val p = ptp ?: throw PtpUsb.PtpException("Zrcadlovka není připojená")
         drainEvents()
+        val started = System.currentTimeMillis()
         if (OC_EOS_REMOTE_RELEASE_ON in supported) {
             val shutter = retryBusy { p.transaction(OC_EOS_REMOTE_RELEASE_ON, 3, 0) }
+            AppLog.i(TAG, "Spoušť (RemoteReleaseOn 3): 0x${shutter.code.toString(16)}")
             if (!shutter.ok && halfPressed) {
                 // Jinak by spoušť zůstala namáčknutá a další pokus by mohl selhat taky.
                 runCatching { p.transaction(OC_EOS_REMOTE_RELEASE_OFF, 1) }
@@ -99,36 +123,86 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
             if (halfPressed) runCatching { p.transaction(OC_EOS_REMOTE_RELEASE_OFF, 1) }
             halfPressed = false
         } else {
-            checked(retryBusy { p.transaction(OC_EOS_REMOTE_RELEASE) }, "Spoušť")
+            val r = retryBusy { p.transaction(OC_EOS_REMOTE_RELEASE) }
+            AppLog.i(TAG, "Spoušť (RemoteRelease): 0x${r.code.toString(16)}")
+            checked(r, "Spoušť")
         }
 
-        // Čekáme na událost „přidán objekt“ (hotová fotka v paměti fotoaparátu).
-        val deadline = System.currentTimeMillis() + 20_000
-        val handles = mutableListOf<Int>()
-        while (System.currentTimeMillis() < deadline) {
-            handles += pollObjectAdded()
-            if (handles.isNotEmpty()) {
-                // RAW+JPEG pošle dva objekty těsně po sobě
-                Thread.sleep(150)
-                handles += pollObjectAdded()
+        // Čekáme na nový soubor. Velký JPEG/RAW na pomalé kartě může trvat i desítky sekund.
+        val timeout = if (saveToCard) 60_000L else 30_000L
+        val objects = mutableListOf<NewObject>()
+        val seenEvents = mutableSetOf<String>()
+        while (System.currentTimeMillis() - started < timeout) {
+            objects += pollNewObjects(seenEvents)
+            if (objects.isNotEmpty()) {
+                // RAW+JPEG pošle dva objekty po sobě – chvíli počkáme na druhý.
+                Thread.sleep(400)
+                objects += pollNewObjects(seenEvents)
                 break
             }
-            Thread.sleep(80)
+            Thread.sleep(100)
         }
-        if (handles.isEmpty()) throw PtpUsb.PtpException("Zrcadlovka nevyfotila (nezaostřila? Zkus manuální ostření nebo víc světla)")
+        if (objects.isEmpty()) {
+            AppLog.e(TAG, "Po ${timeout / 1000} s nepřišla žádná fotka. Události od fotoaparátu: ${seenEvents.joinToString().ifEmpty { "žádné" }}")
+            throw PtpUsb.PtpException(
+                "Fotoaparát nepředal fotku do ${timeout / 1000} s (události: ${seenEvents.joinToString().ifEmpty { "žádné" }}). " +
+                    "Nezaostřil? Zkus ruční ostření (MF). Je v něm karta, pokud ukládá na kartu?"
+            )
+        }
+        AppLog.i(TAG, "Nové soubory za ${System.currentTimeMillis() - started} ms: " +
+            objects.joinToString { "${it.name.ifEmpty { "?" }} (0x${it.handle.toString(16)}, ${it.size / 1024} kB, událost 0x${it.event.toString(16)})" })
 
+        val pick = objects.firstOrNull { isJpeg(it) } ?: objects.first()
         var jpeg: ByteArray? = null
-        for (handle in handles) {
-            val info = p.transaction(OC_GET_OBJECT_INFO, handle)
-            val format = info.data?.takeIf { it.size >= 6 }?.let { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN).getShort(4).toInt() and 0xFFFF }
-            if (jpeg == null && (format == FORMAT_JPEG || format == null)) {
-                val obj = p.transaction(OC_GET_OBJECT, handle, timeoutMs = 20_000)
-                checked(obj, "Stažení fotky")
-                jpeg = obj.data
+        var lastError: Exception? = null
+        for (obj in objects) {
+            if (obj === pick) {
+                try {
+                    jpeg = download(p, obj)
+                } catch (e: Exception) {
+                    lastError = e
+                    AppLog.e(TAG, "Stažení ${obj.name} selhalo", e)
+                }
             }
-            runCatching { p.transaction(OC_EOS_TRANSFER_COMPLETE, handle) }
+            // Uvolní RAM ve fotoaparátu (jinak se po pár fotkách „zasekne“).
+            runCatching { p.transaction(OC_EOS_TRANSFER_COMPLETE, obj.handle) }
         }
-        return jpeg ?: throw PtpUsb.PtpException("Fotoaparát neposlal JPEG – nastav na něm kvalitu JPEG (ne jen RAW)")
+        val data = jpeg ?: throw lastError ?: PtpUsb.PtpException("Stažení fotky selhalo")
+        if (extractJpeg(data) == null && !(data.size > 2 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte())) {
+            throw PtpUsb.PtpException("Fotoaparát poslal soubor, který není JPEG (${pick.name}). Nastav na něm kvalitu JPEG, ne jen RAW.")
+        }
+        AppLog.i(TAG, "Fotka stažena: ${data.size / 1024} kB za ${System.currentTimeMillis() - started} ms")
+        return data
+    }
+
+    private fun isJpeg(o: NewObject) = o.format == FORMAT_JPEG || o.name.endsWith(".JPG", true) || o.name.endsWith(".JPEG", true)
+
+    /** Stáhne soubor: nejdřív GetObject, při neúspěchu po částech (GetPartialObject Canonu). */
+    private fun download(p: PtpUsb, obj: NewObject): ByteArray {
+        var lastCode = 0
+        repeat(3) { attempt ->
+            val r = retryBusy { p.transaction(OC_GET_OBJECT, obj.handle, timeoutMs = 30_000) }
+            val d = r.data
+            if (r.ok && d != null && d.isNotEmpty()) return d
+            lastCode = r.code
+            AppLog.w(TAG, "GetObject pokus ${attempt + 1}: 0x${r.code.toString(16)}, ${d?.size ?: 0} B")
+            Thread.sleep(300L * (attempt + 1)) // soubor se možná ještě zapisuje
+        }
+        if (obj.size > 0 && OC_EOS_GET_PARTIAL_OBJECT in supported) {
+            AppLog.i(TAG, "Zkouším stažení po částech (${obj.size} B)")
+            val out = java.io.ByteArrayOutputStream(obj.size.toInt())
+            var offset = 0L
+            while (offset < obj.size) {
+                val len = minOf(PARTIAL_CHUNK.toLong(), obj.size - offset).toInt()
+                val r = retryBusy { p.transaction(OC_EOS_GET_PARTIAL_OBJECT, obj.handle, offset.toInt(), len, timeoutMs = 30_000) }
+                val d = r.data
+                if (!r.ok || d == null || d.isEmpty()) throw PtpUsb.PtpException("Stažení po částech selhalo na ${offset} B (0x${r.code.toString(16)})", r.code)
+                out.write(d)
+                offset += d.size
+            }
+            return out.toByteArray()
+        }
+        throw PtpUsb.PtpException("Stažení fotky selhalo (0x${lastCode.toString(16)})", lastCode)
     }
 
     private fun readDeviceInfo(p: PtpUsb) {
@@ -149,35 +223,54 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
         }
     }
 
-    private fun setProp(code: Int, value: Int) {
-        val p = ptp ?: return
+    private fun setProp(code: Int, value: Int): Boolean {
+        val p = ptp ?: return false
         val data = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN).putInt(12).putInt(code).putInt(value).array()
         val r = retryBusy { p.transaction(OC_EOS_SET_DEVICE_PROP_VALUE_EX, dataOut = data) }
         if (!r.ok) AppLog.w(TAG, "Nastavení vlastnosti 0x${code.toString(16)} = $value vrátilo 0x${r.code.toString(16)}")
+        return r.ok
     }
 
     private fun drainEvents() {
-        repeat(5) { if (pollObjectAdded().isEmpty()) return }
+        repeat(5) { if (pollNewObjects(null).isEmpty()) return }
     }
 
-    /** Přečte frontu událostí a vrátí handly nově přidaných objektů. */
-    private fun pollObjectAdded(): List<Int> {
+    /**
+     * Přečte frontu událostí (GetEvent) a vrátí nově nahlášené soubory.
+     * Záznam: délka (4 B) | typ (4 B) | data. Pro všechny čtyři „soubor“ události je
+     * handle na +8, velikost na +28 (64bit varianta: +28 nižší, +32 vyšší) a jméno souboru na +40 / +44.
+     */
+    private fun pollNewObjects(seen: MutableSet<String>?): List<NewObject> {
         val p = ptp ?: return emptyList()
         val r = p.transaction(OC_EOS_GET_EVENT)
         val d = r.data ?: return emptyList()
         val bb = ByteBuffer.wrap(d).order(ByteOrder.LITTLE_ENDIAN)
-        val handles = mutableListOf<Int>()
+        val found = mutableListOf<NewObject>()
         var pos = 0
         while (pos + 8 <= d.size) {
             val size = bb.getInt(pos)
             val type = bb.getInt(pos + 4)
-            if (size < 8 || type == 0) break
-            if ((type == EVENT_OBJECT_ADDED_EX || type == EVENT_OBJECT_ADDED_EX64) && pos + 12 <= d.size) {
-                handles += bb.getInt(pos + 8)
+            if (size < 8 || type == 0 || pos + size > d.size) break
+            seen?.add("0x" + type.toString(16))
+            if (type in OBJECT_EVENTS && size >= 12) {
+                val is64 = type == EVENT_OBJECT_ADDED_EX64 || type == EVENT_REQUEST_OBJECT_TRANSFER64
+                val handle = bb.getInt(pos + 8)
+                val format = if (size >= 18) bb.getShort(pos + 16).toInt() and 0xFFFF else 0
+                val objSize = when {
+                    is64 && size >= 36 -> (bb.getInt(pos + 28).toLong() and 0xFFFFFFFFL) or (bb.getInt(pos + 32).toLong() shl 32)
+                    size >= 32 -> bb.getInt(pos + 28).toLong() and 0xFFFFFFFFL
+                    else -> 0L
+                }
+                val nameAt = pos + if (is64) 44 else 40
+                val name = if (nameAt < pos + size) {
+                    val end = (nameAt until pos + size).firstOrNull { d[it] == 0.toByte() } ?: (pos + size)
+                    String(d, nameAt, end - nameAt, Charsets.US_ASCII).trim()
+                } else ""
+                if (found.none { it.handle == handle }) found += NewObject(handle, objSize, name, format, type)
             }
             pos += size
         }
-        return handles
+        return found
     }
 
     private fun retryBusy(block: () -> PtpUsb.Response): PtpUsb.Response {
@@ -205,6 +298,7 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
         private const val OC_GET_OBJECT_INFO = 0x1008
         private const val OC_GET_OBJECT = 0x1009
 
+        private const val OC_EOS_GET_PARTIAL_OBJECT = 0x9107
         private const val OC_EOS_REMOTE_RELEASE = 0x910F
         private const val OC_EOS_SET_DEVICE_PROP_VALUE_EX = 0x9110
         private const val OC_EOS_SET_REMOTE_MODE = 0x9114
@@ -222,8 +316,19 @@ class CanonCamera(private val manager: UsbManager, val device: UsbDevice) {
         private const val PROP_EVF_OUTPUT_DEVICE = 0xD1B0
         private const val PROP_EVF_MODE = 0xD1B3
 
+        private const val DEST_CARD = 2
+        private const val DEST_PC = 4
+        private const val PARTIAL_CHUNK = 1024 * 1024
+
+        /** Soubor uložený (na kartu) */
         private const val EVENT_OBJECT_ADDED_EX = 0xC181
         private const val EVENT_OBJECT_ADDED_EX64 = 0xC1A7
+        /** Soubor čeká v RAM na převzetí počítačem (cíl ukládání = PC) */
+        private const val EVENT_REQUEST_OBJECT_TRANSFER = 0xC186
+        private const val EVENT_REQUEST_OBJECT_TRANSFER64 = 0xC1A9
+        private val OBJECT_EVENTS = setOf(
+            EVENT_OBJECT_ADDED_EX, EVENT_OBJECT_ADDED_EX64, EVENT_REQUEST_OBJECT_TRANSFER, EVENT_REQUEST_OBJECT_TRANSFER64,
+        )
         private const val FORMAT_JPEG = 0x3801
 
         fun isCanon(device: UsbDevice) = device.vendorId == CANON_VENDOR_ID && PtpUsb.isCamera(device)

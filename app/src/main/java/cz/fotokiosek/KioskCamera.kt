@@ -54,7 +54,10 @@ class KioskCamera(private val activity: ComponentActivity) {
     private var viewHeight = 0
     private var lastFrameAt = 0L
 
-    /** Požadovaná kamera z nastavení; prázdné = přední, jinak první dostupná. */
+    /**
+     * Požadovaná kamera z nastavení. Prázdné = automaticky:
+     * 1) externí USB webkamera (LENS_FACING_EXTERNAL), 2) přední, 3) první dostupná.
+     */
     var cameraId = ""
     @Volatile var mirror = true
     var fill = true
@@ -117,8 +120,12 @@ class KioskCamera(private val activity: ComponentActivity) {
             return
         }
         val info = infos.firstOrNull { idOf(it) == cameraId }
+            ?: infos.lastOrNull { facingOf(it) == CameraCharacteristics.LENS_FACING_EXTERNAL } // naposledy připojená USB
             ?: infos.firstOrNull { facingOf(it) == CameraCharacteristics.LENS_FACING_FRONT }
             ?: infos.first()
+        if (cameraId.isNotEmpty() && idOf(info) != cameraId) {
+            AppLog.w(TAG, "Vybraná kamera $cameraId není připojená, používám ${idOf(info)}")
+        }
         val id = idOf(info)
         val selector = CameraSelector.Builder()
             .addCameraFilter { list -> list.filter { idOf(it) == id } }
@@ -161,7 +168,8 @@ class KioskCamera(private val activity: ComponentActivity) {
                     s.error?.let { AppLog.w(TAG, "Stav kamery: chyba ${it.code}") }
                 }
             }
-            AppLog.i(TAG, "Kamera $id spuštěna, rotace displeje ${rotation * 90}°, fill=$fill")
+            AppLog.i(TAG, "Kamera $id (${facingName(facingOf(info))}) spuštěna, rotace displeje ${rotation * 90}°, fill=$fill; " +
+                "Android vidí: ${infos.joinToString { "${idOf(it)}=${facingName(facingOf(it))}" }}")
         } catch (e: Exception) {
             imageCapture = null
             error = "Kameru nelze spustit: ${e.message}"
@@ -185,12 +193,17 @@ class KioskCamera(private val activity: ComponentActivity) {
 
     /** Seznam kamer pro nastavení: id → popis. */
     fun cameras(): List<Pair<String, String>> = provider?.availableCameraInfos.orEmpty().map { info ->
-        val facing = when (facingOf(info)) {
-            CameraCharacteristics.LENS_FACING_FRONT -> "přední"
-            CameraCharacteristics.LENS_FACING_BACK -> "zadní"
-            else -> "externí / USB"
-        }
-        idOf(info) to "Kamera ${idOf(info)} ($facing)"
+        idOf(info) to "Kamera ${idOf(info)} (${facingName(facingOf(info))})"
+    }
+
+    /** Je mezi kamerami Androidu nějaká externí (USB)? */
+    fun hasExternal(): Boolean = provider?.availableCameraInfos.orEmpty().any { facingOf(it) == CameraCharacteristics.LENS_FACING_EXTERNAL }
+
+    private fun facingName(facing: Int?) = when (facing) {
+        CameraCharacteristics.LENS_FACING_FRONT -> "přední"
+        CameraCharacteristics.LENS_FACING_BACK -> "zadní"
+        CameraCharacteristics.LENS_FACING_EXTERNAL -> "externí USB"
+        else -> "neznámá"
     }
 
     /** Vyfotí, otočí, případně zrcadlí a zmenší fotku na velikost vhodnou pro e-mail. */

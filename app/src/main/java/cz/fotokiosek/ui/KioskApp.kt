@@ -154,7 +154,10 @@ fun KioskApp(
                 screen = Screen.Review(final)
             }.onFailure { e ->
                 if (e is CancellationException) throw e
-                AppLog.e("Focení", "Fotka se nepovedla", e)
+                // Skutečná příčina do logu i do „Poslední chyby“ v menu správce; zákazník vidí jen obecnou hlášku.
+                val reason = AppLog.causes(e)
+                AppLog.e("Focení", "Fotka se nepovedla (zdroj: ${camera.source}): $reason", e)
+                settings.lastError = "${java.text.DateFormat.getDateTimeInstance().format(java.util.Date())}: Focení: $reason"
                 notice = Notice("Fotku se nepodařilo pořídit. Zkus to prosím znovu.")
                 goIdle()
             }

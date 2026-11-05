@@ -2,6 +2,8 @@ package cz.fotokiosek
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlarmManager
+import android.app.PendingIntent
 import android.app.admin.DeviceAdminReceiver
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -63,6 +65,22 @@ object Kiosk {
             runCatching { dpm(activity).setStatusBarDisabled(admin(activity), false) }
         }
         runCatching { activity.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    }
+
+    /**
+     * Restart celé aplikace (nový proces) – CameraX si při startu znovu načte seznam kamer,
+     * takže uvidí i USB webkameru připojenou až po spuštění.
+     */
+    fun restartApp(activity: Activity) {
+        AppLog.i("Kiosk", "Restart aplikace z menu správce")
+        val intent = Intent(activity, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val flags = PendingIntent.FLAG_CANCEL_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+        val pending = PendingIntent.getActivity(activity, 4711, intent, flags)
+        val alarm = activity.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.set(AlarmManager.RTC, System.currentTimeMillis() + 1200, pending)
+        runCatching { activity.stopLockTask() }
+        activity.finishAffinity()
+        Runtime.getRuntime().exit(0)
     }
 
     /** Dočasně pustí zámek kiosku kvůli systémovému dialogu (výběr souboru, oprávnění). */

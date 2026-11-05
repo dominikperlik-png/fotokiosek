@@ -190,6 +190,9 @@ Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</
 <h3>Možnost B: Seznam</h3>
 <p>Celá adresa a heslo ke schránce. Kdyby test v kroku 9 selhal, zkontroluj v nastavení schránky, jestli je povolený přístup z poštovních programů.</p>
 
+<h3>Možnost D: Firemní e-mail (vlastní doména)</h3>
+<p>V menu správce → E-mail klepni na <strong>Vlastní / firemní</strong> a vyplň údaje od svého poskytovatele: server (např. <code>smtp.firma.cz</code>, u Microsoft 365 <code>smtp.office365.com</code>), port (465 = SSL, 587 = STARTTLS – zabezpečení se přepne samo), přihlašovací e-mail a heslo. Do <em>Adresa odesílatele</em> dej firemní adresu a do <em>Jméno odesílatele</em> název firmy. <em>Odpovědi posílat na</em> = kam půjdou odpovědi zákazníků. Odesílatel musí být schránka, do které se přihlašuješ, nebo její povolený alias.</p>
+
 <h3>Možnost C: Brevo (na velké akce, nejlepší doručitelnost)</h3>
 <p>Na <a href="https://www.brevo.com">brevo.com</a> je zdarma 300 e-mailů denně. Po registraci ověř adresu odesílatele (Senders). V sekci <em>SMTP &amp; API → SMTP</em> najdeš přihlašovací jméno a vytvoříš SMTP klíč, který se použije jako heslo. Když k Brevu připojíš vlastní doménu, e-maily skoro nikdy nepadají do spamu.</p>
 
@@ -309,6 +312,8 @@ pin=4826</pre></div>
   <tr><th>Problém</th><th>Co s tím</th></tr>
   <tr><td>Na obrazovce je „Kamera nenalezena“</td><td>Android tu USB kameru sám nevidí. Pošli mi <code>diagnostika.txt</code>, doplním podporu USB (UVC) kamer.</td></tr>
   <tr><td>Obraz je černobílý nebo tmavý</td><td>Je vybraná infračervená kamera. V menu správce vyber jinou.</td></tr>
+  <tr><td>USB webkamera se nepoužívá</td><td>Menu správce → Kamera → vyber <em>Automaticky (USB webkamera přednostně)</em> nebo kameru označenou „externí USB“ a dej Uložit. Když tam není, klepni na Systém → <em>Restartovat aplikaci</em>. Když ji ani pak Android neukáže, systém automatu USB kamery nepodporuje – pošli mi <code>diagnostika.txt</code>.</td></tr>
+  <tr><td>Zrcadlovka cvakne, ale fotka nepřijde</td><td>Podívej se do menu → Log: řádky „Canon“ ukážou, co fotoaparát hlásil. Zkontroluj kvalitu JPEG (ne jen RAW) a ruční ostření.</td></tr>
   <tr><td>Obraz zrcadlovky je bokem</td><td>Menu správce → Kamera → <em>Otočení obrazu zrcadlovky</em>. Náhled i fotka se otočí stejně.</td></tr>
   <tr><td>Fotka vznikne až po nápisu „Úsměv!“</td><td>Menu správce → Kamera → zvyš <em>Předstih spouště</em> (např. na 400 ms). Pod polem je vidět naměřená prodleva kamery.</td></tr>
   <tr><td>Test pošty hlásí chybu</td><td>Přečti si radu u kroku, který selhal (→). Nejčastěji: u Gmailu musí být <em>heslo pro aplikace</em>, ne heslo k účtu; špatné datum a čas na automatu; port a zabezpečení k sobě nesedí (465 = SSL, 587 = STARTTLS). U starých Androidů pomůže „Tolerovat neověřený certifikát“.</td></tr>
@@ -336,6 +341,7 @@ pin=4826</pre></div>
   <li><input type="checkbox" data-id="ce3"> Připoj fotoaparát do USB portu automatu (USB-A, případně přes OTG redukci) a zapni ho.</li>
   <li><input type="checkbox" data-id="ce4"> Android se zeptá, jestli fotoaparát otevřít ve Fotokiosku: zaškrtni <strong>„Vždy“ / „Použít ve výchozím nastavení“</strong> a potvrď. Příště už se ptát nebude.</li>
   <li><input type="checkbox" data-id="ce5"> Menu správce → Kamera: zelená tečka = připojeno. Když svítí červeně, klepni na <strong>Znovu připojit</strong>.</li>
+  <li><input type="checkbox" data-id="ce7"> Ve výchozím stavu jde fotka z paměti fotoaparátu rovnou do aplikace a na kartu se neukládá. Když chceš zálohu i na kartě, zapni v menu → Kamera <strong>„Ukládat fotky i na SD kartu“</strong> a klepni na Znovu připojit (přenos pak trvá déle).</li>
   <li><input type="checkbox" data-id="ce6"> Ostření: nejspolehlivější je zaostřit jednou ručně a přepnout objektiv na <strong>MF</strong>. S AF fotoaparát při špatném světle nemusí cvaknout.</li>
 </ul>
 <p class="muted">Zdroj obrazu „Automaticky“ použije zrcadlovku, když je připojená, jinak kameru automatu. Když si fotoaparát zabere systém Androidu (aplikace „MTP host“), fotokiosek ji jako správce zařízení sám skryje a připojí se znovu.</p>
