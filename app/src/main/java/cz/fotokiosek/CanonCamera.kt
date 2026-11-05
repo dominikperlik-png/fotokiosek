@@ -152,13 +152,22 @@ class CanonCamera(
         AppLog.i(TAG, "Nové soubory za ${System.currentTimeMillis() - started} ms: " +
             objects.joinToString { "${it.name.ifEmpty { "?" }} (0x${it.handle.toString(16)}, ${it.size / 1024} kB, událost 0x${it.event.toString(16)})" })
 
-        val pick = objects.firstOrNull { isJpeg(it) } ?: objects.first()
+        // Formát/jméno z události nemusí sedět (rozložení se liší podle typu události a těla),
+        // proto se o JPEG rozhoduje až podle stažených dat: pravděpodobný JPEG první, pak ostatní.
+        // Soubor RAW (CR2/CR3) nezačíná FF D8, takže se přeskočí a zkusí se další (RAW+JPEG).
+        val ordered = objects.sortedBy { if (isJpeg(it)) 0 else 1 }
         var jpeg: ByteArray? = null
         var lastError: Exception? = null
-        for (obj in objects) {
-            if (obj === pick) {
+        var skippedRaw: String? = null
+        for (obj in ordered) {
+            if (jpeg == null) {
                 try {
-                    jpeg = download(p, obj)
+                    val d = download(p, obj)
+                    if (isJpegData(d)) jpeg = d
+                    else {
+                        skippedRaw = obj.name.ifEmpty { "0x" + obj.handle.toString(16) }
+                        AppLog.w(TAG, "Soubor $skippedRaw není JPEG (${d.size / 1024} kB), zkouším další")
+                    }
                 } catch (e: Exception) {
                     lastError = e
                     AppLog.e(TAG, "Stažení ${obj.name} selhalo", e)
@@ -167,13 +176,16 @@ class CanonCamera(
             // Uvolní RAM ve fotoaparátu (jinak se po pár fotkách „zasekne“).
             runCatching { p.transaction(OC_EOS_TRANSFER_COMPLETE, obj.handle) }
         }
-        val data = jpeg ?: throw lastError ?: PtpUsb.PtpException("Stažení fotky selhalo")
-        if (extractJpeg(data) == null && !(data.size > 2 && data[0] == 0xFF.toByte() && data[1] == 0xD8.toByte())) {
-            throw PtpUsb.PtpException("Fotoaparát poslal soubor, který není JPEG (${pick.name}). Nastav na něm kvalitu JPEG, ne jen RAW.")
-        }
+        val data = jpeg ?: if (skippedRaw != null && lastError == null) {
+            throw PtpUsb.PtpException("Fotoaparát poslal jen RAW ($skippedRaw). Nastav na něm kvalitu JPEG (nebo RAW+JPEG).")
+        } else throw lastError ?: PtpUsb.PtpException("Stažení fotky selhalo")
         AppLog.i(TAG, "Fotka stažena: ${data.size / 1024} kB za ${System.currentTimeMillis() - started} ms")
         return data
     }
+
+    /** Opravdový JPEG soubor začíná FF D8 FF (RAW soubory CR2/CR3 začínají jinak). */
+    private fun isJpegData(d: ByteArray) =
+        d.size > 3 && d[0] == 0xFF.toByte() && d[1] == 0xD8.toByte() && d[2] == 0xFF.toByte()
 
     private fun isJpeg(o: NewObject) = o.format == FORMAT_JPEG || o.name.endsWith(".JPG", true) || o.name.endsWith(".JPEG", true)
 
@@ -255,17 +267,26 @@ class CanonCamera(
             if (type in OBJECT_EVENTS && size >= 12) {
                 val is64 = type == EVENT_OBJECT_ADDED_EX64 || type == EVENT_REQUEST_OBJECT_TRANSFER64
                 val handle = bb.getInt(pos + 8)
-                val format = if (size >= 18) bb.getShort(pos + 16).toInt() and 0xFFFF else 0
-                val objSize = when {
+                // Pozice formátu/velikosti/jména jsou ověřené jen pro ObjectAddedEx; u RequestObjectTransfer
+                // se mohou lišit. Nevěrohodné hodnoty proto zahodíme (0 / prázdné) a záznam zalogujeme.
+                val rawFormat = if (size >= 18) bb.getShort(pos + 16).toInt() and 0xFFFF else 0
+                val format = if (rawFormat in 0x3000..0x3FFF || rawFormat in 0xB000..0xBFFF) rawFormat else 0
+                val rawSize = when {
                     is64 && size >= 36 -> (bb.getInt(pos + 28).toLong() and 0xFFFFFFFFL) or (bb.getInt(pos + 32).toLong() shl 32)
                     size >= 32 -> bb.getInt(pos + 28).toLong() and 0xFFFFFFFFL
                     else -> 0L
                 }
+                val objSize = if (rawSize in 1..MAX_PLAUSIBLE_SIZE) rawSize else 0L
                 val nameAt = pos + if (is64) 44 else 40
-                val name = if (nameAt < pos + size) {
+                val rawName = if (nameAt < pos + size) {
                     val end = (nameAt until pos + size).firstOrNull { d[it] == 0.toByte() } ?: (pos + size)
                     String(d, nameAt, end - nameAt, Charsets.US_ASCII).trim()
                 } else ""
+                val name = if (rawName.matches(Regex("[A-Za-z0-9_]{1,16}\\.[A-Za-z0-9]{2,4}"))) rawName else ""
+                if (seen != null) {
+                    val hex = d.copyOfRange(pos, minOf(pos + size, pos + 64)).joinToString(" ") { "%02x".format(it.toInt() and 0xFF) }
+                    AppLog.i(TAG, "Událost 0x${type.toString(16)} ($size B): $hex")
+                }
                 if (found.none { it.handle == handle }) found += NewObject(handle, objSize, name, format, type)
             }
             pos += size
@@ -319,6 +340,8 @@ class CanonCamera(
         private const val DEST_CARD = 2
         private const val DEST_PC = 4
         private const val PARTIAL_CHUNK = 1024 * 1024
+        /** Větší soubor z fotoaparátu nečekáme – vyšší „velikost“ v události je špatně přečtená. */
+        private const val MAX_PLAUSIBLE_SIZE = 200L * 1024 * 1024
 
         /** Soubor uložený (na kartu) */
         private const val EVENT_OBJECT_ADDED_EX = 0xC181

@@ -353,7 +353,11 @@ private fun LivePreview(camera: CameraController, fill: Boolean) {
 private fun LogoBadge(modifier: Modifier) {
     val context = LocalContext.current
     val version = LogoStore.version
-    val logo = remember(version) { LogoStore.load(context)?.asImageBitmap() } ?: return
+    // Logo se načítá na pozadí (velké PNG by na pomalé desce zaseklo úvodní obrazovku).
+    val loaded by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, version) {
+        value = withContext(Dispatchers.IO) { runCatching { LogoStore.load(context)?.asImageBitmap() }.getOrNull() }
+    }
+    val logo = loaded ?: return
     Image(
         bitmap = logo,
         contentDescription = "Logo",

@@ -74,7 +74,37 @@ object LogoStore {
     private fun invalidate() {
         cached = null
         cachedChoice = null
+        synchronized(thumbs) { thumbs.clear() }
         version++
+    }
+
+    /** Malé náhledy log pro menu správce – vlastní mezipaměť, ať nepřepisují logo pro fotky. */
+    private val thumbs = HashMap<String, Bitmap?>()
+
+    /**
+     * Zmenšený náhled loga (delší strana cca [maxSide] px). Volat mimo hlavní vlákno –
+     * dekódování velkého PNG by menu na pomalé desce zaseklo.
+     */
+    fun thumbnail(context: Context, choice: String, maxSide: Int = 320): Bitmap? {
+        if (choice == "none") return null
+        synchronized(thumbs) { if (thumbs.containsKey(choice)) return thumbs[choice] }
+        fun opts(sample: Int) = BitmapFactory.Options().apply { inScaled = false; inSampleSize = sample }
+        val builtin = builtins.firstOrNull { it.id == choice }
+        val custom = file(context)
+        fun decode(o: BitmapFactory.Options): Bitmap? = when {
+            builtin != null -> BitmapFactory.decodeResource(context.resources, builtin.resId, o)
+            choice == "custom" && custom.exists() -> BitmapFactory.decodeFile(custom.absolutePath, o)
+            else -> null
+        }
+        val bitmap = runCatching {
+            val bounds = opts(1).apply { inJustDecodeBounds = true }
+            decode(bounds)
+            var sample = 1
+            while (max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+            decode(opts(sample))
+        }.onFailure { AppLog.w(TAG, "Náhled loga $choice", it) }.getOrNull()
+        synchronized(thumbs) { thumbs[choice] = bitmap }
+        return bitmap
     }
 
     /** Nahraje logo z vybraného souboru (PNG, JPG, WEBP nebo SVG). */
