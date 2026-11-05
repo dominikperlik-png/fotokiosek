@@ -1,5 +1,6 @@
 # Po každém pushi do main: sestaví podepsané APK a vydá ho jako GitHub Release.
 # Automat si ho pak stáhne tlačítkem „Aktualizovat aplikaci“ v menu správce.
+# Ručně jde spustit: záložka Actions → vlevo „Sestavení a vydání“ → tlačítko „Run workflow“.
 #
 # Potřebné secrets (Settings → Secrets and variables → Actions):
 #   KEYSTORE_BASE64        – podpisový klíč (.jks) zakódovaný v base64
