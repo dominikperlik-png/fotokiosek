@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fotokiosek – postup</title>
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --text: #1d1b18;
+    --muted: #6a645b;
+    --border: #e4dfd6;
+    --accent: #b86e00;
+    --accent-soft: #fff3dc;
+    --code-bg: #f3f0ea;
+    --warn-bg: #fff4e5;
+    --warn-border: #f0b45a;
+    --danger-bg: #fdecec;
+    --danger-border: #e08a8a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #151412;
+      --surface: #1e1c19;
+      --text: #ece8e1;
+      --muted: #a39c90;
+      --border: #34302a;
+      --accent: #ffb300;
+      --accent-soft: #2e2615;
+      --code-bg: #262320;
+      --warn-bg: #2b2215;
+      --warn-border: #8a6420;
+      --danger-bg: #2e1919;
+      --danger-border: #8a3b3b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 17px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 80px; }
+  h1 { font-size: 34px; line-height: 1.2; margin: 0 0 8px; }
+  h2 {
+    font-size: 24px; margin: 48px 0 12px; padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  h2 .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; margin-right: 10px; border-radius: 50%;
+    background: var(--accent); color: #000; font-size: 18px; vertical-align: 2px;
+  }
+  h3 { font-size: 19px; margin: 28px 0 8px; }
+  p, li { max-width: 72ch; }
+  a { color: var(--accent); }
+  .lead { color: var(--muted); font-size: 19px; margin-top: 0; }
+  .flow {
+    background: var(--accent-soft); border-radius: 12px; padding: 14px 18px;
+    font-weight: 600; margin: 20px 0;
+  }
+  nav.toc {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 20px; margin: 24px 0;
+  }
+  nav.toc ol { margin: 8px 0; padding-left: 22px; columns: 2; column-gap: 32px; }
+  nav.toc li { break-inside: avoid; }
+  code {
+    background: var(--code-bg); border-radius: 5px; padding: 1px 6px;
+    font: 15px/1.5 Consolas, "Cascadia Mono", monospace;
+  }
+  .cmd { position: relative; margin: 10px 0 16px; }
+  .cmd pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; margin: 0; overflow-x: auto;
+    font: 15px/1.5 Consolas, "Cascadia Mono", monospace;
+  }
+  .cmd button {
+    position: absolute; top: 8px; right: 8px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); border-radius: 6px;
+    padding: 2px 10px; font-size: 13px; cursor: pointer;
+  }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0 20px; font-size: 16px; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--surface); }
+  .table-wrap { overflow-x: auto; }
+  .box { border-radius: 10px; padding: 12px 16px; margin: 16px 0; border: 1px solid; }
+  .tip { background: var(--accent-soft); border-color: var(--accent); }
+  .warn { background: var(--warn-bg); border-color: var(--warn-border); }
+  .danger { background: var(--danger-bg); border-color: var(--danger-border); }
+  .box > :first-child { margin-top: 0; }
+  .box > :last-child { margin-bottom: 0; }
+  ul.check { list-style: none; padding-left: 0; }
+  ul.check li { padding-left: 34px; position: relative; margin: 6px 0; }
+  ul.check input {
+    position: absolute; left: 4px; top: 4px; width: 18px; height: 18px; accent-color: var(--accent);
+  }
+  kbd {
+    border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
+    padding: 0 6px; font-size: 14px; background: var(--surface);
+  }
+  .muted { color: var(--muted); }
+  @media (max-width: 640px) {
+    h1 { font-size: 28px; }
+    nav.toc ol { columns: 1; }
+  }
+  @media print {
+    body { background: #fff; color: #000; font-size: 12pt; }
+    .cmd button { display: none; }
+    h2 { break-after: avoid; }
+    .box, table, .cmd { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Fotokiosek – kompletní postup</h1>
+<p class="lead">Jak z bývalého automatu na elektronické cigarety udělat fotokoutek, který posílá fotky e-mailem.</p>
+
+<div class="flow">Úvodní obrazovka se živým obrazem → VYFOTIT → odpočet 3‑2‑1 → náhled fotky → zadání e-mailu → kontrola adresy → fotka odejde e-mailem</div>
+
+<p>Celé to zabere zhruba hodinu. Nejvíc času obvykle zabere krok 4: dostat se z původní aplikace automatu do Androidu.
+Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</p>
+
+<nav class="toc">
+  <strong>Obsah</strong>
+  <ol>
+    <li><a href="#slozka">Co je ve složce</a></li>
+    <li><a href="#potreba">Co budeš potřebovat</a></li>
+    <li><a href="#email">E-mailová schránka</a></li>
+    <li><a href="#config">Soubor config.properties</a></li>
+    <li><a href="#android">Dostat se do Androidu</a></li>
+    <li><a href="#priprava">Příprava automatu</a></li>
+    <li><a href="#ladeni">Zapnout ladění USB</a></li>
+    <li><a href="#propojeni">Propojit s počítačem</a></li>
+    <li><a href="#instalace">Spustit instalaci</a></li>
+    <li><a href="#zkouska">Nastavení a zkouška</a></li>
+    <li><a href="#ovladani">Ovládání pro správce</a></li>
+    <li><a href="#problemy">Řešení problémů</a></li>
+    <li><a href="#zpet">Vrácení do původního stavu</a></li>
+    <li><a href="#upravy">Úpravy aplikace</a></li>
+  </ol>
+</nav>
+
+<h2 id="slozka">Co je ve složce</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Soubor / složka</th><th>K čemu je</th></tr>
+  <tr><td><code>POSTUP.html</code></td><td>Tenhle návod.</td></tr>
+  <tr><td><code>Fotokiosek.apk</code></td><td>Hotová aplikace pro automat (Android 5.0 a novější).</td></tr>
+  <tr><td><code>spustit-instalaci.bat</code></td><td>Dvojklikem spustíš instalaci na automat.</td></tr>
+  <tr><td><code>instalace.ps1</code></td><td>Samotný instalační skript (spouští ho .bat soubor).</td></tr>
+  <tr><td><code>config.example.properties</code></td><td>Vzor nastavení (e-mail, PIN, texty).</td></tr>
+  <tr><td><code>platform-tools\</code></td><td>Program adb, kterým počítač ovládá automat.</td></tr>
+  <tr><td><code>app\</code>, <code>gradle\</code>, <code>*.gradle.kts</code>, <code>gradlew*</code></td><td>Zdrojový kód aplikace (potřeba jen pro úpravy).</td></tr>
+</table>
+</div>
+<p class="muted">Po instalaci tu přibudou <code>diagnostika.txt</code> (co je v automatu za hardware) a složka <code>zaloha\</code> (záloha původních aplikací automatu).</p>
+
+<h2 id="potreba"><span class="num">1</span>Co budeš potřebovat</h2>
+<ul class="check">
+  <li><input type="checkbox" data-id="p1"> Počítač s Windows a touhle složkou.</li>
+  <li><input type="checkbox" data-id="p2"> <strong>USB myš a USB klávesnici</strong> pro automat. Pomůžou dostat se z původní aplikace.</li>
+  <li><input type="checkbox" data-id="p3"> <strong>USB kabel</strong> k propojení automatu s počítačem. Na desce automatu hledej port označený <em>OTG</em> nebo micro-USB. U některých desek je potřeba kabel <em>USB-A ↔ USB-A</em>. Když kabel nemáš, jde to i přes síť (krok 7).</li>
+  <li><input type="checkbox" data-id="p4"> <strong>Internet pro automat</strong>: Wi-Fi, síťový kabel, nebo SIM, pokud ji má.</li>
+  <li><input type="checkbox" data-id="p5"> <strong>Novou e-mailovou schránku jen pro kiosek</strong> (krok 2).</li>
+</ul>
+
+<h2 id="email"><span class="num">2</span>E-mailová schránka, ze které se budou fotky posílat</h2>
+<div class="box warn"><p>Nepoužívej svou osobní schránku. Heslo bude uložené v automatu.</p></div>
+
+<h3>Možnost A: Gmail (nejjednodušší)</h3>
+<ul class="check">
+  <li><input type="checkbox" data-id="g1"> Založ nový účet Gmail, např. <em>fotokoutek.něco@gmail.com</em>.</li>
+  <li><input type="checkbox" data-id="g2"> Zapni na něm <strong>dvoufázové ověření</strong>: Účet Google → Zabezpečení → Dvoufázové ověření.</li>
+  <li><input type="checkbox" data-id="g3"> Otevři <a href="https://myaccount.google.com/apppasswords">myaccount.google.com/apppasswords</a>, zadej název „Fotokiosek“ a vytvoř heslo.</li>
+  <li><input type="checkbox" data-id="g4"> Google ukáže <strong>heslo pro aplikace</strong> (16 písmen). Opiš si ho. Tohle heslo, ne heslo k účtu, se dává do kiosku.</li>
+</ul>
+<p class="muted">Gmail zvládne zhruba 500 e-mailů denně. Na běžnou akci to stačí.</p>
+
+<h3>Možnost B: Seznam</h3>
+<p>Celá adresa a heslo ke schránce. Kdyby test v kroku 9 selhal, zkontroluj v nastavení schránky, jestli je povolený přístup z poštovních programů.</p>
+
+<h3>Možnost C: Brevo (na velké akce, nejlepší doručitelnost)</h3>
+<p>Na <a href="https://www.brevo.com">brevo.com</a> je zdarma 300 e-mailů denně. Po registraci ověř adresu odesílatele (Senders). V sekci <em>SMTP &amp; API → SMTP</em> najdeš přihlašovací jméno a vytvoříš SMTP klíč, který se použije jako heslo. Když k Brevu připojíš vlastní doménu, e-maily skoro nikdy nepadají do spamu.</p>
+
+<div class="table-wrap">
+<table>
+  <tr><th>Služba</th><th>Server</th><th>Port</th><th>Zabezpečení</th></tr>
+  <tr><td>Gmail</td><td><code>smtp.gmail.com</code></td><td>465</td><td>SSL</td></tr>
+  <tr><td>Seznam</td><td><code>smtp.seznam.cz</code></td><td>465</td><td>SSL</td></tr>
+  <tr><td>Brevo</td><td><code>smtp-relay.brevo.com</code></td><td>587</td><td>STARTTLS</td></tr>
+</table>
+</div>
+
+<h2 id="config"><span class="num">3</span>Soubor config.properties</h2>
+<p>Díky tomuhle souboru nemusíš heslo k e-mailu psát na dotykové obrazovce automatu.</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="c1"> Zkopíruj <code>config.example.properties</code> a kopii přejmenuj na <code>config.properties</code>. Musí ležet ve stejné složce.</li>
+  <li><input type="checkbox" data-id="c2"> Otevři ho v Poznámkovém bloku (pravé tlačítko → Otevřít v programu → Poznámkový blok).</li>
+  <li><input type="checkbox" data-id="c3"> Vyplň aspoň tyhle řádky (příklad pro Gmail):</li>
+</ul>
+<div class="cmd"><pre>smtp_host=smtp.gmail.com
+smtp_port=465
+smtp_security=SSL
+smtp_user=fotokoutek.neco@gmail.com
+smtp_password=abcdefghijklmnop
+from_name=Fotokoutek
+subject=Tvoje fotka z fotokoutku
+pin=4826</pre></div>
+<ul class="check">
+  <li><input type="checkbox" data-id="c4"> Změň <code>pin</code> (vstup do menu správce) na vlastní, aspoň 4 číslice.</li>
+  <li><input type="checkbox" data-id="c5"> Ulož. Instalace soubor nahraje do automatu a automat si ho po načtení sám smaže.</li>
+</ul>
+<p class="muted">Text e-mailu (<code>body</code>) píšeš na jeden řádek, nový řádek zapíšeš jako <code>\n</code>. Všechno jde později změnit i v menu správce přímo na automatu.</p>
+
+<h2 id="android"><span class="num">4</span>Dostat se z původní aplikace do Androidu</h2>
+<p>Po zapnutí automatu běží jejich prodejní aplikace. Potřebuješ se dostat do <strong>Nastavení</strong> Androidu.</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="a1"> Připoj do automatu USB myš a klávesnici.</li>
+  <li><input type="checkbox" data-id="a2"> Zkus postupně: klávesu <kbd>Win</kbd>, <kbd>Esc</kbd>, <kbd>Alt</kbd>+<kbd>Tab</kbd>, <kbd>Alt</kbd>+<kbd>F4</kbd> a tah myší nebo prstem od horního či spodního okraje obrazovky.</li>
+  <li><input type="checkbox" data-id="a3"> Některé prodejní aplikace mají skryté servisní menu: opakované klepání do rohu nebo na logo, případně servisní PIN od výrobce.</li>
+  <li><input type="checkbox" data-id="a4"> Jakmile uvidíš plochu Androidu nebo lištu, otevři <strong>Nastavení</strong>.</li>
+</ul>
+<div class="box tip">
+  <p><strong>Nejde to?</strong> Tyhle desky mívají zapnuté ladění přes síť. Připoj automat síťovým kabelem do routeru, v routeru zjisti jeho IP adresu a rovnou přeskoč na krok 8 (instalace se zeptá na IP). Když nepomůže ani to, pošli mi fotku obrazovky a typ desky (bývá vytištěný na desce).</p>
+</div>
+
+<h2 id="priprava"><span class="num">5</span>Příprava automatu</h2>
+<ul class="check">
+  <li><input type="checkbox" data-id="r1"> <strong>Připoj automat k internetu</strong>: Nastavení → Wi-Fi (nebo síťový kabel).</li>
+  <li><input type="checkbox" data-id="r2"> <strong>Odeber všechny účty</strong>: Nastavení → Účty (Google apod.). S přihlášeným účtem nejde kiosek zamknout.</li>
+  <li><input type="checkbox" data-id="r3"> Zkontroluj datum a čas (Nastavení → Datum a čas). Se špatným časem nefunguje zabezpečené odesílání e-mailů.</li>
+</ul>
+<div class="box warn">
+  <p><strong>Data zákazníků:</strong> původní aplikace na ověřování věku si mohla ukládat fotky obličejů nebo dokladů. Smažeš je až po instalaci (krok 9), nebo obnovením továrního nastavení. Po obnovení ale musíš znovu projít kroky 4–6.</p>
+</div>
+
+<h2 id="ladeni"><span class="num">6</span>Zapnout ladění USB</h2>
+<ul class="check">
+  <li><input type="checkbox" data-id="l1"> Nastavení → <strong>O zařízení</strong> (nebo O tabletu / Systém) → 7× klepni na <strong>Číslo sestavení</strong>. Objeví se „Nyní jste vývojář“.</li>
+  <li><input type="checkbox" data-id="l2"> Vrať se zpět → <strong>Možnosti pro vývojáře</strong> (bývá v Systém → Pokročilé).</li>
+  <li><input type="checkbox" data-id="l3"> Zapni <strong>Ladění USB</strong>. Pokud tam je i <em>Ladění přes síť / ADB over network</em>, zapni ho taky.</li>
+</ul>
+
+<h2 id="propojeni"><span class="num">7</span>Propojit automat s počítačem</h2>
+<p><strong>Kabelem:</strong> propoj port OTG nebo micro-USB automatu s počítačem. Na obrazovce automatu se objeví dotaz <em>„Povolit ladění USB?“</em>. Zaškrtni <em>Vždy povolit</em> a potvrď.</p>
+<p><strong>Přes síť:</strong> automat a počítač musí být ve stejné síti. IP adresu automatu najdeš v Nastavení → O zařízení → Stav (nebo v detailu Wi-Fi sítě). Instalace se na ni sama zeptá.</p>
+
+<h2 id="instalace"><span class="num">8</span>Spustit instalaci</h2>
+<ul class="check">
+  <li><input type="checkbox" data-id="i1"> Dvojklik na <strong><code>spustit-instalaci.bat</code></strong>. Pokud Windows zobrazí „Systém Windows ochránil počítač“, klikni na <em>Další informace → Přesto spustit</em>.</li>
+</ul>
+<p>Skript projde 7 kroků a na pár místech se zeptá:</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Krok</th><th>Co dělá</th><th>Co odpovědět</th></tr>
+  <tr><td>1 Připojení</td><td>Najde automat přes USB.</td><td>Když ho nevidí, zadej IP adresu automatu. Hlásí-li <em>unauthorized</em>, potvrď dotaz na obrazovce automatu a spusť instalaci znovu.</td></tr>
+  <tr><td>2 Diagnostika</td><td>Zjistí Android, kamery, displej a aplikace. Uloží to do <code>diagnostika.txt</code>.</td><td>Nic.</td></tr>
+  <tr><td>3 Správce zařízení</td><td>Zjistí, jestli automat nedrží „správce zařízení“ od výrobce, a pokusí se ho odebrat.</td><td>Pokud má automat root, zeptá se na smazání záznamu správce a restart. Odpověz <kbd>a</kbd>.</td></tr>
+  <tr><td>4 Původní aplikace</td><td>Vypíše aplikace a označí tu, která se spouští po zapnutí.</td><td>Napiš čísla aplikací k vypnutí, nebo jen <kbd>Enter</kbd> pro tu označenou. Vypnuté aplikace se zazálohují do složky <code>zaloha</code>.</td></tr>
+  <tr><td>5 Instalace</td><td>Nainstaluje <code>Fotokiosek.apk</code>.</td><td>Nic.</td></tr>
+  <tr><td>6 Zamčení</td><td>Nastaví fotokiosek jako správce zařízení: nejde ho opustit a spouští se po zapnutí.</td><td>Nic. Když hlásí chybu kvůli účtům, odeber účty (krok 5) a spusť instalaci znovu.</td></tr>
+  <tr><td>7 Spuštění</td><td>Nahraje <code>config.properties</code> a spustí fotokiosek.</td><td>Na závěr se zeptá na restart: <kbd>a</kbd>.</td></tr>
+</table>
+</div>
+<div class="box tip"><p>Instalaci jde klidně spustit znovu. Už hotové kroky přeskočí.</p></div>
+
+<h2 id="zkouska"><span class="num">9</span>Nastavení a zkouška na automatu</h2>
+<ul class="check">
+  <li><input type="checkbox" data-id="z1"> Po restartu musí sám naběhnout fotokiosek se živým obrazem z kamery.</li>
+  <li><input type="checkbox" data-id="z2"> Otevři <strong>menu správce</strong>: 5× rychle klepni do <strong>levého horního rohu</strong> (do 3 sekund) a zadej PIN (výchozí 1234).</li>
+  <li><input type="checkbox" data-id="z3"> <strong>Kamera:</strong> když je obraz černobílý nebo divně tmavý, je vybraná infračervená kamera. Vyber v seznamu druhou. Podle potřeby zapni nebo vypni zrcadlení.</li>
+  <li><input type="checkbox" data-id="z4"> Klepni na <strong>„Uložit a poslat testovací e-mail“</strong> a zkontroluj schránku kiosku (i spam).</li>
+  <li><input type="checkbox" data-id="z5"> Pokud jsi PIN nezměnil v config.properties, <strong>změň ho teď</strong> a dej <em>Uložit</em>.</li>
+  <li><input type="checkbox" data-id="z6"> <strong>Ostrá zkouška:</strong> vyfoť se, pošli fotku na svůj e-mail a zkontroluj, že dorazila.</li>
+  <li><input type="checkbox" data-id="z7"> Automat vypni ze zásuvky a zase zapni. Musí naběhnout rovnou fotokiosek.</li>
+  <li><input type="checkbox" data-id="z8"> Smaž data původní aplikace (fotky zákazníků). Ve složce projektu klikni do adresního řádku Průzkumníka, napiš <code>cmd</code>, dej Enter a spusť příkaz níž. Místo <code>NAZEV.BALIKU</code> napiš název jejich aplikace z kroku 4 instalace.</li>
+</ul>
+<div class="cmd"><pre>platform-tools\adb shell pm clear NAZEV.BALIKU</pre></div>
+<div class="box danger"><p>Tenhle příkaz smaže data jejich aplikace nevratně. Samotná aplikace zůstane zazálohovaná ve složce <code>zaloha</code>.</p></div>
+
+<h2 id="ovladani">Ovládání pro správce</h2>
+<ul>
+  <li><strong>Menu správce:</strong> 5× klepnout do levého horního rohu (do 3 s) a zadat PIN.</li>
+  <li><strong>Stav nahoře v menu:</strong> jestli je kiosek zamčený, jestli kamera funguje, kolik fotek čeká ve frontě, kolik se odeslalo a poslední chyba.</li>
+  <li><strong>Kamera:</strong> výběr kamery, zrcadlení, náhled přes celou obrazovku (fotka se ořízne stejně jako náhled).</li>
+  <li><strong>Kiosek:</strong> uvítací text, délka odpočtu, návrat na úvod po nečinnosti, po kolika dnech se mažou fotky, PIN.</li>
+  <li><strong>E-mail:</strong> tlačítka Gmail / Seznam / Brevo vyplní server, pak testovací e-mail.</li>
+  <li><strong>Systém:</strong> Wi-Fi a Nastavení Androidu. Tlačítko Domů tě potom vrátí zpět do kiosku.</li>
+  <li>Když vypadne internet, fotky čekají ve frontě a odešlou se samy, jakmile se spojení vrátí, i po restartu.</li>
+</ul>
+
+<h2 id="problemy">Řešení problémů</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Problém</th><th>Co s tím</th></tr>
+  <tr><td>Na obrazovce je „Kamera nenalezena“</td><td>Android tu USB kameru sám nevidí. Pošli mi <code>diagnostika.txt</code>, doplním podporu USB (UVC) kamer.</td></tr>
+  <tr><td>Obraz je černobílý nebo tmavý</td><td>Je vybraná infračervená kamera. V menu správce vyber jinou.</td></tr>
+  <tr><td>Obraz je bokem nebo vzhůru nohama</td><td>Napiš mi. Doplním do menu nastavení otočení obrazu.</td></tr>
+  <tr><td>Testovací e-mail hlásí chybu</td><td>U Gmailu je skoro vždy špatně heslo: musí to být <em>heslo pro aplikace</em>, ne heslo k účtu. Zkontroluj taky internet a datum a čas na automatu.</td></tr>
+  <tr><td>Fotky padají do spamu</td><td>Přejdi na Brevo s vlastní doménou. Lidem se zatím dá říct „mrkni i do spamu“ (to se jim po odeslání ukazuje samo).</td></tr>
+  <tr><td>Po zapnutí naběhne zase jejich aplikace</td><td>Spusť instalaci znovu a v kroku 4 vyber i další jejich aplikace. Pošli mi <code>diagnostika.txt</code>.</td></tr>
+  <tr><td>Po zapnutí se Android ptá, jakou domovskou aplikaci použít</td><td>Vyber <em>Fotokiosek</em> → <em>Vždy</em>. Znamená to, že se nepovedl krok 6 instalace (zamčení).</td></tr>
+  <tr><td>Instalace hlásí <em>accounts</em></td><td>Na automatu je přihlášený účet. Odeber ho (Nastavení → Účty) a spusť instalaci znovu.</td></tr>
+  <tr><td>Instalace hlásí jiného správce zařízení a automat nemá root</td><td>Zbývá obnovení továrního nastavení. Když ho výrobce zablokoval, pošli mi <code>diagnostika.txt</code> a domluvíme se, jestli má smysl přeflashovat systém.</td></tr>
+</table>
+</div>
+
+<h3>Co mi poslat, když něco nejde</h3>
+<ul>
+  <li>soubor <code>diagnostika.txt</code>,</li>
+  <li>fotku obrazovky automatu,</li>
+  <li>text „Poslední chyba“ z menu správce (u problémů s e-mailem).</li>
+</ul>
+
+<h2 id="zpet">Vrácení do původního stavu</h2>
+<ol>
+  <li>V menu správce dej <strong>Odebrat správce zařízení</strong>.</li>
+  <li>Ve složce projektu otevři <code>cmd</code> (jako v kroku 9) a odinstaluj fotokiosek:
+    <div class="cmd"><pre>platform-tools\adb uninstall cz.fotokiosek</pre></div>
+  </li>
+  <li>Zapni původní aplikaci (název balíku je v <code>diagnostika.txt</code> nebo ve složce <code>zaloha</code>):
+    <div class="cmd"><pre>platform-tools\adb shell pm enable NAZEV.BALIKU</pre></div>
+    Pokud to nepomůže:
+    <div class="cmd"><pre>platform-tools\adb shell cmd package install-existing NAZEV.BALIKU</pre></div>
+  </li>
+</ol>
+
+<h2 id="upravy">Úpravy aplikace</h2>
+<p>O úpravy (otočení obrazu, logo na fotce, jiné texty, USB kamera…) si klidně řekni a APK sestavím znovu.
+Nástroje na sestavení leží v <code>%LOCALAPPDATA%\FotokiosekBuild</code> (2,3 GB). Až nebudeš nic upravovat, můžeš je smazat.</p>
+<p>Sestavení ručně (v <code>cmd</code> otevřeném ve složce projektu):</p>
+<div class="cmd"><pre>set JAVA_HOME=%LOCALAPPDATA%\FotokiosekBuild\jdk-17.0.21.0.2+1
+set ANDROID_HOME=%LOCALAPPDATA%\FotokiosekBuild\sdk
+set GRADLE_USER_HOME=%LOCALAPPDATA%\FotokiosekBuild\gradle-home
+gradlew.bat assembleDebug</pre></div>
+<p>Nové APK najdeš v <code>app\build\outputs\apk\debug\app-debug.apk</code>. Zkopíruj ho sem jako <code>Fotokiosek.apk</code> a spusť instalaci znovu. Nastavení na automatu zůstane zachované.</p>
+
+<h3>Proč se nepřeflashovává celý systém</h3>
+<p>Výměna firmwaru na neznámé desce je riskantní: se špatným obrazem systému zbude z automatu cihla. Vypnutí původní aplikace a nastavení fotokiosku jako správce zařízení dá stejný výsledek, po zapnutí naběhne jen fotokiosek, a jde to kdykoli vrátit.</p>
+
+<h3>Ochrana osobních údajů</h3>
+<ul>
+  <li>Fotky jsou jen v interní paměti aplikace a mažou se po nastaveném počtu dní (výchozí 7).</li>
+  <li>E-mailová adresa je jen ve frontě odesílání. Systém ji po odeslání do zhruba jednoho dne smaže.</li>
+  <li>Na obrazovce zadávání e-mailu lidé vidí, že adresa slouží jen k odeslání fotky.</li>
+</ul>
+
+</main>
+<script>
+  // Odškrtávání kroků (pamatuje si ho jen tento prohlížeč)
+  document.querySelectorAll('ul.check input[type=checkbox]').forEach(function (box) {
+    var key = 'fotokiosek-postup-' + box.dataset.id;
+    try { box.checked = localStorage.getItem(key) === '1'; } catch (e) {}
+    box.addEventListener('change', function () {
+      try { localStorage.setItem(key, box.checked ? '1' : '0'); } catch (e) {}
+    });
+  });
+  // Tlačítka Kopírovat u příkazů
+  document.querySelectorAll('.cmd').forEach(function (block) {
+    var pre = block.querySelector('pre');
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Kopírovat';
+    btn.addEventListener('click', function () {
+      var done = function () { btn.textContent = 'Zkopírováno'; setTimeout(function () { btn.textContent = 'Kopírovat'; }, 1500); };
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(pre.innerText).then(done, function () {});
+      }
+    });
+    block.appendChild(btn);
+  });
+</script>
+</body>
+</html>
