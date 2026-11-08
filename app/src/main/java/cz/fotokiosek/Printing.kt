@@ -378,7 +378,8 @@ object SystemPrint {
             .setResolution(PrintAttributes.Resolution("300dpi", "300 DPI", 300, 300))
             .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
             .build()
-        Kiosk.pauseLock(activity) // dialog patří systému
+        // Zámek kiosku se NEpouští: tiskový dialog (com.android.printspooler) je povolený v Kiosk.setup,
+        // takže se otevře i v zamčeném kiosku a zákazník se z něj nedostane do jiných aplikací.
         manager.print(jobName, PhotoAdapter(activity, photo, copies.coerceIn(1, 99), jobName), attributes)
         AppLog.i("Tisk", "Systémový tisk: $copies×")
     }

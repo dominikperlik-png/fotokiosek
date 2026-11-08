@@ -33,9 +33,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
+import androidx.compose.runtime.MutableLongState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -95,7 +96,7 @@ data class Notice(val text: String, val error: Boolean = true)
 fun KioskApp(
     settings: KioskSettings,
     camera: CameraController,
-    lastTouch: State<Long>,
+    lastTouch: MutableLongState,
     pickLogo: ((Uri?) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
@@ -103,6 +104,9 @@ fun KioskApp(
     var screen by remember { mutableStateOf<Screen>(Screen.Idle) }
     var notice by remember { mutableStateOf<Notice?>(null) }
     var askPin by remember { mutableStateOf(false) }
+    // Ochrana PINu: po MAX_PIN_FAILURES špatných pokusech se menu správce na chvíli zamkne.
+    var pinFailures by remember { mutableIntStateOf(0) }
+    var pinLockedUntil by remember { mutableLongStateOf(0L) }
     var printFor by remember { mutableStateOf<Bitmap?>(null) }
     var printing by remember { mutableStateOf(false) }
     val flash = remember { Animatable(0f) }
@@ -275,11 +279,19 @@ fun KioskApp(
                     onConfirm = { send(s.photo, s.email) },
                 )
                 Screen.Sent -> SentScreen(onDone = { goIdle() })
-                Screen.Admin -> AdminScreen(settings, camera, pickLogo, onClose = { goIdle() })
+                Screen.Admin -> AdminScreen(
+                    settings, camera, pickLogo,
+                    onActivity = { lastTouch.longValue = SystemClock.elapsedRealtime() },
+                    onClose = { goIdle() },
+                )
             }
 
             if (screen != Screen.Admin) {
-                AdminCorner(Modifier.align(Alignment.TopStart)) { askPin = true }
+                AdminCorner(Modifier.align(Alignment.TopStart)) {
+                    val left = pinLockedUntil - SystemClock.elapsedRealtime()
+                    if (left > 0) notice = Notice("Menu správce je zamčené kvůli špatnému PINu. Zkus to za ${left / 60_000 + 1} min.")
+                    else askPin = true
+                }
             }
             if (askPin) {
                 PinPad(
@@ -287,8 +299,15 @@ fun KioskApp(
                     onEnter = { pin ->
                         val ok = pin == settings.pin
                         if (ok) {
+                            pinFailures = 0
                             askPin = false
                             screen = Screen.Admin
+                        } else if (++pinFailures >= MAX_PIN_FAILURES) {
+                            pinFailures = 0
+                            pinLockedUntil = SystemClock.elapsedRealtime() + PIN_LOCK_MS
+                            askPin = false
+                            AppLog.w("Správa", "$MAX_PIN_FAILURES× špatný PIN – menu správce zamčeno na ${PIN_LOCK_MS / 60_000} min")
+                            notice = Notice("Moc špatných pokusů. Menu správce je na ${PIN_LOCK_MS / 60_000} minut zamčené.")
                         }
                         ok
                     },
@@ -324,6 +343,8 @@ fun KioskApp(
 }
 
 private const val PREFOCUS_MS = 800L
+private const val MAX_PIN_FAILURES = 5
+private const val PIN_LOCK_MS = 5 * 60_000L
 
 /**
  * Živý náhled – snímky jsou už otočené a zrcadlené stejně jako výsledná fotka

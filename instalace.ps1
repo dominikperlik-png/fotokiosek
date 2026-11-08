@@ -310,7 +310,18 @@ if ($logo) {
 
 Write-Host ''
 Ok 'Hotovo!'
-if (Ask 'Restartovat teď automat a ověřit, že po zapnutí naběhne fotokiosek?') {
+
+# Zapnuté ladění (adb) = kdokoli ve stejné síti / s kabelem může automat ovládat. Aktualizace jdou
+# z GitHubu, takže po instalaci ladění není potřeba.
+Info ''
+Info 'Bezpečnost: ladění USB (adb) je na automatu pořád zapnuté. Kdo by se k němu připojil'
+Info 'kabelem nebo přes síť, mohl by automat ovládat. Aktualizace jdou i bez něj (menu správce).'
+Info 'Až ho budeš zase potřebovat: menu správce → Nastavení Androidu → Pro vývojáře → Ladění USB.'
+Warn 'Pozor: bez ladění nejde obnovit zapomenutý PIN (do menu se pak nedostaneš). PIN si poznamenej.'
+if (Ask 'Vypnout ladění USB (adb)? Po vypnutí se tento počítač od automatu odpojí.') {
+    Sh 'settings put global adb_enabled 0' | Out-Null
+    Ok 'Ladění vypnuto. Automat restartuj vypnutím a zapnutím a zkontroluj, že naběhne fotokiosek.'
+} elseif (Ask 'Restartovat teď automat a ověřit, že po zapnutí naběhne fotokiosek?') {
     Invoke-Adb reboot | Out-Null
     Info 'Automat se restartuje.'
 }

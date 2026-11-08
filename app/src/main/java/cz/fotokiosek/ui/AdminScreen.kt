@@ -37,6 +37,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -168,6 +170,8 @@ fun AdminScreen(
     settings: KioskSettings,
     camera: CameraController,
     pickLogo: ((Uri?) -> Unit) -> Unit,
+    /** Psaní na systémové klávesnici není dotyk v aplikaci – hlásí se zvlášť, ať menu nezavře časovač nečinnosti. */
+    onActivity: () -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -333,6 +337,7 @@ fun AdminScreen(
         }
     }
 
+    CompositionLocalProvider(LocalAdminActivity provides onActivity) {
     Box(Modifier.fillMaxSize().background(Dark), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier
@@ -350,6 +355,7 @@ fun AdminScreen(
                     append("${camera.statusLine}\n")
                     append("Ve frontě k odeslání: ${pending ?: "?"}   Odesláno celkem: ${settings.sentCount}   Vytištěno: ${settings.printCount}")
                     if (settings.lastError.isNotEmpty()) append("\nPoslední chyba: ${settings.lastError}")
+                    if (settings.pin == "1234") append("\n⚠ PIN je pořád výchozí 1234 – změň ho níže v sekci Kiosek (Změna PINu).")
                 },
                 fontSize = 18.sp,
                 modifier = Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
@@ -781,6 +787,7 @@ fun AdminScreen(
             }
         }
     }
+    }
 
     if (confirmRemoveOwner) {
         AlertDialog(
@@ -798,6 +805,9 @@ fun AdminScreen(
         )
     }
 }
+
+/** Hlášení „správce právě píše“ z textových polí (viz onActivity v [AdminScreen]). */
+private val LocalAdminActivity = staticCompositionLocalOf<() -> Unit> { {} }
 
 /** Řada přepínacích tlačítek (jedna volba z několika). */
 @Composable
@@ -843,9 +853,10 @@ private fun Field(
     singleLine: Boolean = true,
     onChange: (String) -> Unit,
 ) {
+    val typing = LocalAdminActivity.current
     OutlinedTextField(
         value = value,
-        onValueChange = onChange,
+        onValueChange = { typing(); onChange(it) },
         label = { Text(label) },
         singleLine = singleLine,
         keyboardOptions = KeyboardOptions(

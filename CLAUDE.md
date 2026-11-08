@@ -75,7 +75,8 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 - **send():** `RateLimit.allow` (jinak hláška a zůstane na Confirm) → Sent; na IO vlákně `PhotoStore.save` + `SendPhotoWorker.enqueue` (chyba uložení → `lastError`).
 - **Sent:** „Hotovo! Fotka je na cestě… mrkni i do spamu.“ Po 8 s nebo klepnutí zpět na Idle.
 - **Časovače:** nečinnost → Idle po `idleTimeout` (min 10 s), v Admin menu po 180 s; během odpočtu se neruší. PIN pad zmizí po 30 s nečinnosti. Chybové hlášky (červený pruh nahoře) zmizí po 5 s.
-- **Vstup do správy:** neviditelný čtverec 110 dp vlevo nahoře, 5 klepnutí do 3 s → `PinPad` (číselník, max 8 číslic, „Špatný PIN“) → `Screen.Admin`. Roh není aktivní, když je otevřený Admin.
+- **Vstup do správy:** neviditelný čtverec 110 dp vlevo nahoře, 5 klepnutí do 3 s → `PinPad` (číselník, max 8 číslic, „Špatný PIN“) → `Screen.Admin`. Roh není aktivní, když je otevřený Admin. Po 5 špatných PINech se menu na 5 min zamkne (jen v paměti, restart to zruší). Výchozí PIN 1234 → varování ve stavovém boxu adminu.
+- **Psaní v adminu:** systémová klávesnice není dotyk v aktivitě → textová pole (`Field`) hlásí aktivitu přes `onActivity` (CompositionLocal), jinak by časovač 180 s zavřel menu uprostřed psaní.
 
 ### Menu správce (AdminScreen)
 Sekce: stavový box (verze, device owner, `camera.statusLine`, fronta, odesláno, vytištěno, poslední chyba) → **Kamera** (zdroj auto/android/canon, stav zrcadlovky s tečkou + **Znovu připojit**, kamery Androidu, otočení zrcadlovky, zrcadlení, fill, předstih spouště + naměřená prodleva) → **Kiosek** → **Logo** (náhled, nahrát/nahradit/smazat, na obrazovce, na fotce, roh, velikost) → **Tisk** (povolit, režim ipp/system, vyhledat, výběr, ruční adresa, otestovat, max kopií) → **E-mail** (předvolby, pole, tolerovat certifikát, **Otestovat připojení k mailu** / **…a poslat testovací e-mail**, výsledky po krocích s radou, komunikace se serverem) → **Aktualizace** (verze, nová verze na GitHubu, **Aktualizovat aplikaci** s průběhem, repo, token) → **Log** (zobrazit/smazat) → **Systém**. Zavřít / Uložit. `save()` zapíše vše a zavolá `camera.applySettings()`.
@@ -83,7 +84,8 @@ Pomocné komponenty: `ChoiceRow` (čipy), `Section`, `SwitchRow`, `Field`.
 
 Resources: `strings.xml` (jen `app_name`), `themes.xml` (`Theme.Material.NoActionBar.Fullscreen`, černé pozadí), `drawable/ic_launcher.xml`, `xml/device_admin.xml` (prázdné policies).
 
-Manifest: oprávnění CAMERA, INTERNET, ACCESS_NETWORK_STATE; `camera.any` není povinná; MainActivity je LAUNCHER **i HOME** (singleTask), `allowBackup=false`, `largeHeap=true`.
+Manifest: oprávnění CAMERA, INTERNET, ACCESS_NETWORK_STATE; `camera.any` není povinná; MainActivity je LAUNCHER **i HOME** (singleTask), `allowBackup=false`, `largeHeap=true`, **`usesCleartextTraffic=true`** (IPP na tiskárny jde přes http://, Android 9+ by ho jinak blokoval).
+Systémový tisk **nepouští** lock task – `com.android.printspooler` je v allowlistu (`Kiosk.setup`), zákazník se tak nedostane z kiosku.
 
 ## Nastavení (klíče v config.properties = klíče v SharedPreferences)
 E-mail: `smtp_host` (smtp.gmail.com), `smtp_port` (465), `smtp_security` (SSL|STARTTLS|NONE), `smtp_user`, `smtp_password`, `smtp_trust_all` (false), `from_address`, `from_name`, `reply_to`, `subject`, `body` (`\n`). (Android nemá env proměnné – SMTP_HOST apod. = tyto klíče.) V adminu předvolba „Vlastní / firemní“, port 465/587 sám přepne SSL/STARTTLS.
@@ -104,7 +106,7 @@ SMTP předvolby: Gmail `smtp.gmail.com:465 SSL` (heslo pro aplikace, ~500/den), 
 4. Výběr a vypnutí původních aplikací (`pm disable-user`, fallback `pm uninstall -k --user 0`), APK záloha do `zaloha/`.
 5. `adb install -r [-g]` APK.
 6. `dpm set-device-owner cz.fotokiosek/.KioskAdminReceiver` (selže s přihlášeným účtem nebo jiným ownerem).
-7. Push `config.properties` a `logo.*` do `/sdcard/Android/data/cz.fotokiosek/files/`, restart aplikace, volitelně reboot automatu.
+7. Push `config.properties` a `logo.*` do `/sdcard/Android/data/cz.fotokiosek/files/`, restart aplikace. Na konci nabídne **vypnutí ladění USB** (`settings put global adb_enabled 0`, bezpečnost), jinak volitelně reboot automatu.
 
 Krok 5 nabízí stažení `releases/latest/download/fotokiosek.apk`; při `UPDATE_INCOMPATIBLE` (starý podpis) vysvětlí jednorázovou přeinstalaci (nejdřív v adminu „Odebrat správce zařízení“).
 

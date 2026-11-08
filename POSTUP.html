@@ -294,7 +294,7 @@ pin=4826</pre></div>
 
 <h2 id="ovladani">Ovládání pro správce</h2>
 <ul>
-  <li><strong>Menu správce:</strong> 5× klepnout do levého horního rohu (do 3 s) a zadat PIN.</li>
+  <li><strong>Menu správce:</strong> 5× klepnout do levého horního rohu (do 3 s) a zadat PIN. Po 5 špatných pokusech se menu na 5 minut zamkne. Dokud je PIN výchozí 1234, menu na to upozorňuje.</li>
   <li><strong>Stav nahoře v menu:</strong> jestli je kiosek zamčený, jestli kamera funguje, kolik fotek čeká ve frontě, kolik se odeslalo a poslední chyba.</li>
   <li><strong>Kamera:</strong> zdroj obrazu (automaticky / kamera Androidu / zrcadlovka Canon), stav zrcadlovky a tlačítko <em>Znovu připojit</em>, výběr kamery, zrcadlení, náhled přes celou obrazovku (fotka se ořízne stejně jako náhled), předstih spouště.</li>
   <li><strong>Kiosek:</strong> uvítací text, délka odpočtu, návrat na úvod po nečinnosti, po kolika dnech se mažou fotky, PIN.</li>
@@ -313,7 +313,7 @@ pin=4826</pre></div>
   <tr><td>Na obrazovce je „Kamera nenalezena“</td><td>Android tu USB kameru sám nevidí. Pošli mi <code>diagnostika.txt</code>, doplním podporu USB (UVC) kamer.</td></tr>
   <tr><td>Obraz je černobílý nebo tmavý</td><td>Je vybraná infračervená kamera. V menu správce vyber jinou.</td></tr>
   <tr><td>Náhled vestavěné kamery je otočený</td><td>Menu správce → Kamera → <em>Otočení živého náhledu</em>: vyber hodnotu, při které náhled odpovídá fotce (výchozí 180°). Fotka se tím nemění.</td></tr>
-  <tr><td>Zapomenutý / změna PINu</td><td>Menu správce → Kiosek → <em>Změna PINu</em>: zadej nový PIN dvakrát a klepni na Změnit PIN. Zapomenutý PIN jde obnovit instalací s <code>pin=</code> v <code>config.properties</code>.</td></tr>
+  <tr><td>Zapomenutý / změna PINu</td><td>Menu správce → Kiosek → <em>Změna PINu</em>: zadej nový PIN dvakrát a klepni na Změnit PIN. Zapomenutý PIN jde obnovit instalací s <code>pin=</code> v <code>config.properties</code>. To ale funguje jen se zapnutým laděním USB – pokud jsi ho na konci instalace vypnul, PIN si dobře poznamenej.</td></tr>
   <tr><td>USB webkamera se nepoužívá</td><td>Menu správce → Kamera → vyber <em>Automaticky (USB webkamera přednostně)</em> nebo kameru označenou „externí USB“ a dej Uložit. Když tam není, klepni na Systém → <em>Restartovat aplikaci</em>. Když ji ani pak Android neukáže, systém automatu USB kamery nepodporuje – pošli mi <code>diagnostika.txt</code>.</td></tr>
   <tr><td>Zrcadlovka cvakne, ale fotka nepřijde</td><td>Podívej se do menu → Log: řádky „Canon“ ukážou, co fotoaparát hlásil. Zkontroluj kvalitu JPEG (ne jen RAW) a ruční ostření.</td></tr>
   <tr><td>Obraz zrcadlovky je bokem</td><td>Menu správce → Kamera → <em>Otočení obrazu zrcadlovky</em>. Náhled i fotka se otočí stejně.</td></tr>
