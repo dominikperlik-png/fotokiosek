@@ -115,6 +115,7 @@ Krok 5 nabízí stažení `releases/latest/download/fotokiosek.apk`; při `UPDAT
 - Neznámý hardware automatu – reálná data budou v `diagnostika.txt`.
 
 ## Zásady pro úpravy
+- Při psaní, kontrole nebo úpravách kódu použij skill **karpathy-guidelines** (nejdřív přemýšlet, co nejjednodušší řešení, měnit jen to nutné, ověřitelný cíl).
 - Zachovat kompatibilitu s Androidem 5 (API 21); novější API obalit kontrolou verze a `runCatching` jako v `Kiosk.kt`.
 - Ochrana osobních údajů: fotky jen v interní paměti, mazání po `keep_days`, e-mail jen ve frontě WorkManageru. Nic neukládat navíc.
 - Hesla nikdy necommitovat (`config.properties` je v .gitignore).
