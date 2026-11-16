@@ -44,7 +44,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.max
+import kotlin.math.min
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
@@ -270,7 +276,9 @@ fun KioskApp(
     KioskTheme {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             // Živý náhled běží pořád, ostatní obrazovky ho překrývají.
-            LivePreview(camera, settings.fillScreen)
+            // Při zapnutém tisku čáry, co se vytiskne (jen na úvodní obrazovce a při odpočtu).
+            val showGuide = settings.printEnabled && (screen == Screen.Idle || screen is Screen.Countdown)
+            LivePreview(camera, settings.fillScreen, if (showGuide) PrintMedia.forSettings(settings) else null)
 
             when (val s = screen) {
                 Screen.Idle -> IdleScreen(settings, camera.error, onShoot = { shoot() })
@@ -366,7 +374,7 @@ private const val PIN_LOCK_MS = 5 * 60_000L
  * (viz KioskCamera.orient / CanonCamera.decode), takže tady se nic neotáčí.
  */
 @Composable
-private fun LivePreview(camera: CameraController, fill: Boolean) {
+private fun LivePreview(camera: CameraController, fill: Boolean, printMedia: PrintMedia?) {
     Box(
         Modifier.fillMaxSize().onSizeChanged { camera.setViewSize(it.width, it.height) },
         contentAlignment = Alignment.Center,
@@ -379,10 +387,83 @@ private fun LivePreview(camera: CameraController, fill: Boolean) {
                 modifier = Modifier.fillMaxSize(),
                 contentScale = if (fill) ContentScale.Crop else ContentScale.Fit,
             )
+            if (printMedia != null) {
+                val screenShaped = fill && camera.source == CameraController.Source.ANDROID
+                PrintAreaGuide(frame.width, frame.height, fill, screenShaped, printMedia)
+            }
         } else if (camera.error == null) {
             Text("Spouštím kameru…", color = Color.White.copy(alpha = 0.5f), fontSize = 24.sp)
         }
     }
+}
+
+/**
+ * Čáry ohraničující část obrazu, která se vytiskne (fotka se pro tisk ořízne na tvar papíru 10×15,
+ * viz PrintLayout.forPrint).
+ * [screenShaped] = fotka má přesně tvar obrazovky (vestavěná kamera + „přes celou obrazovku“ → ViewPort),
+ * pak se počítá z obrazovky a nevadí ani otočení náhledu. Jinak se bere tvar náhledu (zrcadlovka, režim Fit).
+ */
+@Composable
+private fun PrintAreaGuide(frameW: Int, frameH: Int, fill: Boolean, screenShaped: Boolean, media: PrintMedia) {
+    Spacer(
+        Modifier
+            .fillMaxSize()
+            // Vlastní vrstva + mezipaměť: nový snímek kamery (~20× za s) čáry nepřekresluje.
+            .graphicsLayer()
+            .drawWithCache {
+                val w = size.width
+                val h = size.height
+                // Kde na obrazovce leží fotka (Crop = přesahuje plochu, Fit = vejde se celá).
+                val imgW: Float
+                val imgH: Float
+                if (screenShaped || frameW <= 0 || frameH <= 0) {
+                    imgW = w; imgH = h
+                } else {
+                    val scale = if (fill) max(w / frameW, h / frameH) else min(w / frameW, h / frameH)
+                    imgW = frameW * scale; imgH = frameH * scale
+                }
+                // Papír ve stejné orientaci jako fotka (stejně jako PrintLayout.fit), ořez uprostřed.
+                val paper = if (imgW >= imgH) media.longPx.toFloat() / media.shortPx else media.shortPx.toFloat() / media.longPx
+                val wider = imgW / imgH > paper
+                val printW = if (wider) imgH * paper else imgW
+                val printH = if (wider) imgH else imgW / paper
+                val left = (w - printW) / 2f
+                val top = (h - printH) / 2f
+                val right = left + printW
+                val bottom = top + printH
+                val shade = Color.Black.copy(alpha = 0.35f)
+                val stroke = 4.dp.toPx()
+                val dash = PathEffect.dashPathEffect(floatArrayOf(28.dp.toPx(), 16.dp.toPx()))
+                // Čáry jen tam, kde je hrana uvnitř obrazovky (hrana na okraji displeje nic neříká).
+                val vertical = left > 1f
+                val horizontal = top > 1f
+                onDrawBehind {
+                    // Ztmavit, co se nevytiskne (uvnitř oblasti zůstane obraz beze změny).
+                    if (vertical) {
+                        drawRect(shade, Offset.Zero, Size(left, h))
+                        drawRect(shade, Offset(right, 0f), Size(w - right, h))
+                    }
+                    if (horizontal) {
+                        val x0 = left.coerceAtLeast(0f)
+                        val x1 = right.coerceAtMost(w)
+                        drawRect(shade, Offset(x0, 0f), Size(x1 - x0, top))
+                        drawRect(shade, Offset(x0, bottom), Size(x1 - x0, h - bottom))
+                    }
+                    val y0 = top.coerceAtLeast(0f)
+                    val y1 = bottom.coerceAtMost(h)
+                    val x0 = left.coerceAtLeast(0f)
+                    val x1 = right.coerceAtMost(w)
+                    if (vertical) {
+                        drawLine(Accent, Offset(left, y0), Offset(left, y1), stroke, pathEffect = dash)
+                        drawLine(Accent, Offset(right, y0), Offset(right, y1), stroke, pathEffect = dash)
+                    }
+                    if (horizontal) {
+                        drawLine(Accent, Offset(x0, top), Offset(x1, top), stroke, pathEffect = dash)
+                        drawLine(Accent, Offset(x0, bottom), Offset(x1, bottom), stroke, pathEffect = dash)
+                    }
+                }
+            },
+    )
 }
 
 @Composable
