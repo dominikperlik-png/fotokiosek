@@ -109,6 +109,8 @@ fun KioskApp(
     var pinFailures by remember { mutableIntStateOf(0) }
     var pinLockedUntil by remember { mutableLongStateOf(0L) }
     var printFor by remember { mutableStateOf<Bitmap?>(null) }
+    /** Tisková verze poslední fotky (ořez na papír + logo) – ukazuje se po vyfocení a tiskne se. */
+    var printPhoto by remember { mutableStateOf<Bitmap?>(null) }
     var printing by remember { mutableStateOf(false) }
     val flash = remember { Animatable(0f) }
 
@@ -116,6 +118,7 @@ fun KioskApp(
         screen = Screen.Idle
         askPin = false
         printFor = null
+        printPhoto = null
     }
 
     fun shoot() {
@@ -155,9 +158,15 @@ fun KioskApp(
             // „Úsměv!“ ať je vidět aspoň chvilku, i když je fotka hotová hned
             waitUntil(end + 500)
             result.onSuccess { raw ->
-                val final = withContext(Dispatchers.Default) {
-                    runCatching { LogoStore.applyToPhoto(context, settings, raw) }.getOrDefault(raw)
+                val (final, forPrint) = withContext(Dispatchers.Default) {
+                    val mail = runCatching { LogoStore.applyToPhoto(context, settings, raw) }.getOrDefault(raw)
+                    // Při zapnutém tisku se ukáže rovnou tisková verze (přesně to, co vyjde z tiskárny).
+                    val print = if (!settings.printEnabled) null else runCatching { PrintLayout.forPrint(context, settings, raw) }
+                        .onFailure { AppLog.e("Tisk", "Příprava tiskové verze fotky selhala", it) }
+                        .getOrNull()
+                    mail to print
                 }
+                printPhoto = forPrint
                 screen = Screen.Review(final)
             }.onFailure { e ->
                 if (e is CancellationException) throw e
@@ -193,7 +202,7 @@ fun KioskApp(
         printFor = null
         val job = "Fotokiosek ${System.currentTimeMillis() / 1000}"
         // Vždy 10×15 cm při 300 DPI, bez okrajů (rozměr podle modelu tiskárny).
-        val media = PrintMedia.forModel(settings.printerModel)
+        val media = PrintMedia.forSettings(settings)
         if (settings.printMode == "system") {
             // Na některých deskách tiskový systém Androidu chybí – chyba nesmí shodit kiosek.
             runCatching { (context as? Activity)?.let { SystemPrint.print(it, PrintLayout.fit(photo, media), copies, job, media) } }
@@ -267,11 +276,11 @@ fun KioskApp(
                 Screen.Idle -> IdleScreen(settings, camera.error, onShoot = { shoot() })
                 is Screen.Countdown -> CountdownOverlay(s.value)
                 is Screen.Review -> ReviewScreen(
-                    photo = s.photo,
+                    photo = printPhoto ?: s.photo,
                     canPrint = settings.printEnabled,
                     printing = printing,
                     onRetake = { goIdle() },
-                    onPrint = { printFor = s.photo },
+                    onPrint = { printFor = printPhoto ?: s.photo },
                     onSend = { screen = Screen.Email(s.photo) },
                 )
                 is Screen.Email -> EmailScreen(

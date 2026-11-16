@@ -47,6 +47,10 @@ enum class PrintMedia(
 
     companion object {
         fun forModel(model: String) = if (model == "selphy_cp1500") POSTCARD_100x148 else INDEX_4x6
+
+        /** SELPHY přes USB má vždy papír 100×148 mm, jinak podle zvoleného modelu. */
+        fun forSettings(settings: KioskSettings) =
+            if (settings.printMode == "selphy_usb") POSTCARD_100x148 else forModel(settings.printerModel)
     }
 }
 
@@ -57,6 +61,32 @@ object PrintLayout {
         val w = if (landscape) media.longPx else media.shortPx
         val h = if (landscape) media.shortPx else media.longPx
         return fill(photo, w, h)
+    }
+
+    /**
+     * Tisková verze fotky: ořez na viditelnou plochu papíru a logo až potom – tak se logo při tisku neuřízne.
+     * Přesně tohle zákazník vidí po vyfocení a přesně tohle se vytiskne.
+     */
+    fun forPrint(context: Context, settings: KioskSettings, raw: Bitmap): Bitmap {
+        val fitted = fit(raw, PrintMedia.forSettings(settings))
+        val withLogo = LogoStore.applyToPhoto(context, settings, fitted)
+        if (withLogo !== fitted) fitted.recycle()
+        return withLogo
+    }
+
+    /**
+     * Tisk bez okrajů tiskne kousek za papír ([w]×[h] je větší než papír). Fotka [photo] (= viditelná plocha
+     * papíru [visibleW]×[visibleH]) se dá doprostřed a okraj za papírem se vyplní zvětšenou fotkou – na papíře není vidět.
+     */
+    fun withBleed(photo: Bitmap, w: Int, h: Int, visibleW: Int, visibleH: Int): Bitmap {
+        val out = fill(photo, w, h)
+        val left = (w - visibleW) / 2f
+        val top = (h - visibleH) / 2f
+        android.graphics.Canvas(out).drawBitmap(
+            photo, null, RectF(left, top, left + visibleW, top + visibleH),
+            android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+        )
+        return out
     }
 
     /** Fotka zvětšená/zmenšená tak, aby vyplnila celé [w]×[h] (ořez uprostřed). */

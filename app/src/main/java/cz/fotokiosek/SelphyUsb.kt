@@ -143,7 +143,7 @@ object SelphyUsb {
     }
 
     /**
-     * Vytiskne fotku (fotka se ořízne na celý papír 10×15). Blokuje, volat mimo hlavní vlákno.
+     * Vytiskne tiskovou verzi fotky (PrintLayout.forPrint). Blokuje, volat mimo hlavní vlákno.
      * Vrátí se, jakmile tiskárna přijme první kopii; další kopie se dotisknou na pozadí
      * (jejich chyba přijde do [onLaterError]). Další tisk mezitím počká, až tiskárna dotiskne.
      */
@@ -227,12 +227,16 @@ object SelphyUsb {
     }
 
     /**
-     * Hlavička + obrázek. Fotka se vyplní na 10×15 (ořez uprostřed), fotka na šířku se otočí o 90°.
+     * Hlavička + obrázek. [photo] = tisková verze (viditelná plocha papíru, viz PrintLayout.forPrint);
+     * tiskárna dostane 1248×1872, tj. o ~3 mm víc na každé straně, než má papír (1181×1748 při 300 DPI) –
+     * fotka jde doprostřed a přesah se vyplní okrajem fotky. Fotka na šířku se otočí o 90°.
      * Barvy: RGB → YUV 4:4:4 (BT.601, celý rozsah), vrstvy Y, U, V za sebou.
      */
     private fun buildJob(photo: Bitmap): ByteArray {
         val landscape = photo.width > photo.height
-        val fitted = if (landscape) PrintLayout.fill(photo, ROWS, COLS) else PrintLayout.fill(photo, COLS, ROWS)
+        val vis = PrintMedia.POSTCARD_100x148
+        val fitted = if (landscape) PrintLayout.withBleed(photo, ROWS, COLS, vis.longPx, vis.shortPx)
+        else PrintLayout.withBleed(photo, COLS, ROWS, vis.shortPx, vis.longPx)
         val pixels = IntArray(COLS * ROWS)
         fitted.getPixels(pixels, 0, fitted.width, 0, 0, fitted.width, fitted.height)
         val fittedHeight = fitted.height
