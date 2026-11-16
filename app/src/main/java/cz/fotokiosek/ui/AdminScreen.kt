@@ -78,6 +78,7 @@ import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.Updater
+import cz.fotokiosek.SelphyUsb
 import cz.fotokiosek.UsbPrinters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -199,6 +200,8 @@ fun AdminScreen(
     var logoChoice by remember { mutableStateOf(settings.logoChoice) }
     var printerModel by remember { mutableStateOf(settings.printerModel) }
     val usbPrinters = remember { UsbPrinters.list(context) }
+    var selphyName by remember { mutableStateOf(SelphyUsb.find(context)?.let { SelphyUsb.modelName(it) }) }
+    var usbDevices by remember { mutableStateOf(SelphyUsb.describeAll(context)) }
     // --- logo ---
     var logoOnScreen by remember { mutableStateOf(settings.logoOnScreen) }
     var logoOnPhoto by remember { mutableStateOf(settings.logoOnPhoto) }
@@ -582,7 +585,7 @@ fun AdminScreen(
                 ) { printerModel = it }
                 Text(
                     when (printerModel) {
-                        "selphy_cp1500" -> "SELPHY: papír KP-108IN (100×148 mm). Nejspolehlivější je připojit ji k Wi-Fi a zvolit „Síťová tiskárna“ – tiskne pak hned, bez dialogů."
+                        "selphy_cp1500" -> "SELPHY: papír KP-108IN (100×148 mm). Připoj ji USB kabelem a zvol „USB – Canon SELPHY“, nebo ji připoj k Wi-Fi a zvol „Síťová tiskárna“. Obojí tiskne hned, bez dialogů."
                         "dnp_qw410" -> "DNP DP-QW410 má jen USB a Android pro ni nemá ovladač. Funguje přes tiskový server (např. Raspberry Pi s CUPS) jako „Síťová tiskárna“, nebo přes tiskovou službu Androidu, pokud ji výrobce nabízí."
                         else -> "Fotka se připraví jako 4×6″ (1800×1200 px) a vyplní celý papír."
                     },
@@ -596,11 +599,50 @@ fun AdminScreen(
                         color = Accent,
                     )
                 }
+                if (selphyName != null && printMode != "selphy_usb") {
+                    Text(
+                        "Přes USB je připojená $selphyName – pro tisk přes kabel zvol „USB – Canon SELPHY“.",
+                        fontSize = 16.sp,
+                        color = Accent,
+                    )
+                }
                 ChoiceRow(
-                    listOf("ipp" to "Síťová tiskárna (doporučeno)", "system" to "Systémový tisk Androidu (i USB)"),
+                    listOf(
+                        "ipp" to "Síťová tiskárna (doporučeno)",
+                        "selphy_usb" to "USB – Canon SELPHY",
+                        "system" to "Systémový tisk Androidu",
+                    ),
                     printMode,
                 ) { printMode = it }
-                if (printMode == "ipp") {
+                if (printMode == "selphy_usb") {
+                    Text(
+                        "SELPHY připoj USB kabelem do automatu a zapni ji. Vlož papír 10×15 (KP-108IN). " +
+                            "Poprvé dej „Otestovat tiskárnu“ a na obrazovce povol přístup: zaškrtni „Použít ve výchozím nastavení pro toto zařízení USB“ (nebo „Vždy“) a dej OK – jinak se povolení po vypnutí tiskárny ztratí. Pak test zopakuj.",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                    OutlinedButton(onClick = {
+                        usbDevices = SelphyUsb.describeAll(context)
+                        val device = SelphyUsb.find(context)
+                        selphyName = device?.let { SelphyUsb.modelName(it) }
+                        if (device != null && !SelphyUsb.hasPermission(context, device)) {
+                            printerTest = "Povol na obrazovce přístup k tiskárně (zaškrtni „Použít ve výchozím nastavení…“ / „Vždy“) a dej „Otestovat tiskárnu“ znovu."
+                            SelphyUsb.requestPermission(activity, device)
+                        } else {
+                            printerTest = "Zkouším tiskárnu…"
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) { SelphyUsb.test(context) }
+                                printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                            }
+                        }
+                    }) { Text("Otestovat tiskárnu") }
+                    printerTest?.let { Text(it, fontSize = 18.sp) }
+                    Text(
+                        "USB zařízení, která automat vidí: " + usbDevices.joinToString("; ").ifEmpty { "žádné" },
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                } else if (printMode == "ipp") {
                     Text(
                         "Tiskárna musí být ve stejné síti jako automat (Wi-Fi / kabel). Tiskne se rovnou, bez dialogů.",
                         fontSize = 15.sp,

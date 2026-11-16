@@ -125,7 +125,9 @@ class CameraController(private val activity: ComponentActivity, private val sett
 
     /** Aplikace dostala USB zařízení přímo (spuštění přes připojení fotoaparátu). */
     fun onUsbIntent(intent: Intent) {
-        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) reconnect()
+        // Filtr v manifestu pouští všechna zařízení Canon (i tiskárnu SELPHY) – znovu připojit jen kvůli zrcadlovce.
+        val device = deviceFrom(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED && (device == null || CanonCamera.isCanon(device))) reconnect()
     }
 
     /** Po změně nastavení v menu správce. */

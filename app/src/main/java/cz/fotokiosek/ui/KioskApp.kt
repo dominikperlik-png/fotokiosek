@@ -69,6 +69,7 @@ import cz.fotokiosek.PrintLayout
 import cz.fotokiosek.PrintMedia
 import cz.fotokiosek.RateLimit
 import cz.fotokiosek.SendPhotoWorker
+import cz.fotokiosek.SelphyUsb
 import cz.fotokiosek.SystemPrint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
@@ -204,7 +205,8 @@ fun KioskApp(
                 }
             return
         }
-        if (settings.printerUrl.isBlank()) {
+        val usbSelphy = settings.printMode == "selphy_usb"
+        if (!usbSelphy && settings.printerUrl.isBlank()) {
             notice = Notice("Tiskárna není nastavená. Požádej obsluhu.")
             return
         }
@@ -212,11 +214,15 @@ fun KioskApp(
         notice = Notice(if (copies == 1) "Tisknu fotku…" else "Tisknu $copies kopie…", error = false)
         scope.launch {
             val result = withContext(Dispatchers.IO) {
-                val jpeg = ByteArrayOutputStream().use { out ->
-                    PrintLayout.fit(photo, media).compress(Bitmap.CompressFormat.JPEG, 95, out)
-                    out.toByteArray()
+                if (usbSelphy) {
+                    SelphyUsb.print(context, photo, copies) { settings.lastError = "Tisk dalších kopií: $it" }
+                } else {
+                    val jpeg = ByteArrayOutputStream().use { out ->
+                        PrintLayout.fit(photo, media).compress(Bitmap.CompressFormat.JPEG, 95, out)
+                        out.toByteArray()
+                    }
+                    IppClient.print(settings.printerUrl, jpeg, copies, job, media)
                 }
-                IppClient.print(settings.printerUrl, jpeg, copies, job, media)
             }
             printing = false
             if (result.ok) {

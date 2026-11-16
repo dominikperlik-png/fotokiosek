@@ -56,6 +56,11 @@ object PrintLayout {
         val landscape = photo.width >= photo.height
         val w = if (landscape) media.longPx else media.shortPx
         val h = if (landscape) media.shortPx else media.longPx
+        return fill(photo, w, h)
+    }
+
+    /** Fotka zvětšená/zmenšená tak, aby vyplnila celé [w]×[h] (ořez uprostřed). */
+    fun fill(photo: Bitmap, w: Int, h: Int): Bitmap {
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(out)
         canvas.drawColor(android.graphics.Color.WHITE)
@@ -74,7 +79,8 @@ object UsbPrinters {
     fun list(context: Context): List<String> {
         val usb = context.getSystemService(Context.USB_SERVICE) as? android.hardware.usb.UsbManager ?: return emptyList()
         return usb.deviceList.values.filter { d ->
-            (0 until d.interfaceCount).any { d.getInterface(it).interfaceClass == android.hardware.usb.UsbConstants.USB_CLASS_PRINTER }
+            !SelphyUsb.isSelphy(d) && // SELPHY má vlastní ovladač a vlastní hlášku v menu
+                (0 until d.interfaceCount).any { d.getInterface(it).interfaceClass == android.hardware.usb.UsbConstants.USB_CLASS_PRINTER }
         }.map { it.productName ?: "USB tiskárna ${it.vendorId}:${it.productId}" }
     }
 }

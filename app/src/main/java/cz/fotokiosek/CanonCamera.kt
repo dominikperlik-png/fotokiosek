@@ -354,7 +354,8 @@ class CanonCamera(
         )
         private const val FORMAT_JPEG = 0x3801
 
-        fun isCanon(device: UsbDevice) = device.vendorId == CANON_VENDOR_ID && PtpUsb.isCamera(device)
+        // SELPHY je taky Canon a může mít rozhraní pro fotoaparáty (PictBridge) – není to zrcadlovka.
+        fun isCanon(device: UsbDevice) = device.vendorId == CANON_VENDOR_ID && PtpUsb.isCamera(device) && !SelphyUsb.isAnySelphy(device)
 
         /** Najde JPEG (FFD8 … FFD9) v datech živého náhledu. */
         fun extractJpeg(data: ByteArray): ByteArray? {
