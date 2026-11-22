@@ -79,6 +79,10 @@ class KioskSettings(context: Context) {
     /** Okamžitě a trvale uloží nový PIN (commit, ne apply – ať přežije i okamžitý restart). */
     fun savePin(newPin: String): Boolean = prefs.edit().putString("pin", newPin).commit()
 
+    /** PIN obsluhy pro galerii (jiný než PIN správce). Prázdný = galerie vypnutá a fotky se do ní neukládají. */
+    var galleryPin by string("gallery_pin", "")
+    fun saveGalleryPin(newPin: String): Boolean = prefs.edit().putString("gallery_pin", newPin).commit()
+
     var sentCount by int("sent_count", 0)
     var printCount by int("print_count", 0)
     var lastError by string("last_error", "")
@@ -105,6 +109,12 @@ class KioskSettings(context: Context) {
         for (key in props.stringPropertyNames()) {
             val value = props.getProperty(key).trim()
             when (key) {
+                // PIN galerie jen platný a jiný než PIN správce; prázdný galerii nevypíná (vypíná se v menu, i s fotkami).
+                "gallery_pin" -> {
+                    val pinNow = props.getProperty("pin")?.trim()?.ifEmpty { null } ?: pin
+                    if (value.length in 4..8 && value.all(Char::isDigit) && value != pinNow) editor.putString(key, value)
+                    else if (value.isNotEmpty()) AppLog.w("Nastavení", "gallery_pin v config.properties je neplatný (4–8 číslic, jiný než pin) – ignoruji")
+                }
                 in intKeys -> value.toIntOrNull()?.let { editor.putInt(key, it) }
                 in boolKeys -> editor.putBoolean(key, value.lowercase() in setOf("true", "1", "ano", "yes"))
                 else -> editor.putString(key, value)

@@ -12,6 +12,9 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /**
  * Tisk na Canon SELPHY CP (CP820 … CP1500) přímo přes USB – Android pro ni ovladač nemá.
@@ -53,6 +56,17 @@ object SelphyUsb {
     private const val WAIT_IDLE_MS = 150_000L
     /** Čekání, než tiskárna po odeslání dat začne tisknout. */
     private const val WAIT_START_MS = 30_000L
+    /** Jak dlouho čekat, než obsluha vyřeší problém tiskárny (papír, páska, zaseknutí). */
+    private const val WAIT_FIX_MS = 30 * 60_000L
+    /** Po vyřešení problému: jak dlouho počkat, jestli tiskárna sama naváže, než se fotka pošle znovu. */
+    private const val WAIT_AFTER_FIX_MS = 60_000L
+
+    /**
+     * Problém tiskárny, na jehož vyřešení se právě čeká (co má obsluha udělat), jinak null.
+     * Zobrazuje se na obrazovce; po vyřešení tisk sám pokračuje.
+     */
+    var problem: String? by mutableStateOf(null)
+        private set
 
     class Status(val state: Int, val error: Int, val media: Int, val raw: ByteArray) {
         val idle get() = state == STATE_IDLE
@@ -112,8 +126,13 @@ object SelphyUsb {
     }
 
     /** Test z menu správce: najde tiskárnu a přečte její stav. */
-    @Synchronized
     fun test(context: Context): IppClient.Result {
+        // Během tisku / čekání na obsluhu drží zámek tisk – test by čekal desítky minut.
+        problem?.let { return IppClient.Result(false, "Tiskárna čeká na obsluhu: $it") }
+        return synchronized(this) { testLocked(context) }
+    }
+
+    private fun testLocked(context: Context): IppClient.Result {
         AppLog.i(TAG, "USB zařízení: " + describeAll(context).joinToString("; ").ifEmpty { "žádné" })
         val device = find(context) ?: run {
             val other = usb(context)?.deviceList?.values?.firstOrNull { isAnySelphy(it) }
@@ -175,22 +194,7 @@ object SelphyUsb {
     private fun runCopies(manager: UsbManager, device: UsbDevice, job: ByteArray, range: IntRange, total: Int): IppClient.Result =
         try {
             Link.open(manager, device).use { link ->
-                for (copy in range) {
-                    link.readStatus() // první odpověď bývá stará
-                    val ready = link.waitFor(WAIT_IDLE_MS) { it.idle }
-                        ?: throw PrinterException("tiskárna je pořád zaneprázdněná")
-                    if (ready.media == 0x02 || ready.media == 0x03) {
-                        throw PrinterException("ve tiskárně je jiný papír (${ready.mediaText}), potřeba je 10×15 cm (KP-108IN)")
-                    }
-                    link.write(job)
-                    link.readStatus()
-                    // Data jsou celá v tiskárně – i když začátek tisku nezachytíme, nehlásit chybu (zákazník by tiskl znovu).
-                    if (link.waitFor(WAIT_START_MS) { it.started } == null) {
-                        AppLog.w(TAG, "Kopie $copy/$total: tiskárna data přijala, začátek tisku jsem nezachytil")
-                    } else {
-                        AppLog.i(TAG, "Kopie $copy/$total se tiskne")
-                    }
-                }
+                for (copy in range) sendCopy(link, job, "Kopie $copy/$total")
                 IppClient.Result(true, "OK")
             }
         } catch (e: PrinterException) {
@@ -198,7 +202,55 @@ object SelphyUsb {
         } catch (e: Exception) {
             AppLog.e(TAG, "Tisk", e)
             fail("spojení s tiskárnou selhalo: ${e.message}")
+        } finally {
+            problem = null
         }
+
+    /**
+     * Jedna kopie. Došlý papír, páska, zaseknutí apod. nejsou chyba úlohy: ukáže se [problem],
+     * čeká se, až to obsluha vyřeší, a pak se pokračuje. Když tiskárna kvůli problému úlohu zahodila
+     * (po vyřešení zůstane nečinná), pošle se fotka ještě jednou.
+     */
+    private fun sendCopy(link: Link, job: ByteArray, label: String) {
+        for (attempt in 1..2) {
+            link.readStatus() // první odpověď bývá stará
+            link.waitFor(WAIT_IDLE_MS, requirePostcard = true) { it.idle }
+                ?: throw PrinterException("tiskárna je pořád zaneprázdněná")
+            link.write(job)
+            link.readStatus()
+            link.hadProblem = false
+            if (link.waitFor(WAIT_START_MS) { it.started } != null) {
+                AppLog.i(TAG, "$label se tiskne")
+                return
+            }
+            // Po výměně papíru/kazety může tiskárně chvíli trvat, než naváže – raději déle čekat než tisknout dvakrát.
+            if (link.hadProblem && link.waitFor(WAIT_AFTER_FIX_MS) { it.started } != null) {
+                AppLog.i(TAG, "$label se po vyřešení problému tiskne")
+                return
+            }
+            if (!link.hadProblem || attempt == 2) {
+                // Data jsou celá v tiskárně – i když začátek tisku nezachytíme, nehlásit chybu (zákazník by tiskl znovu).
+                AppLog.w(TAG, "$label: tiskárna data přijala, začátek tisku jsem nezachytil")
+                return
+            }
+            AppLog.w(TAG, "$label: po vyřešení problému tiskárna nezačala – posílám fotku znovu")
+        }
+    }
+
+    /** Co má obsluha udělat (krátce, pro obrazovku). */
+    private fun fixText(code: Int) = when (code) {
+        0x01 -> "slabá baterie – připoj tiskárnu do zásuvky"
+        0x02 -> "došel papír – doplň papír 10×15"
+        0x03 -> "chybí zásobník papíru – zasuň ho zpět"
+        0x04, 0x05, 0x0F -> "špatný papír – vlož papír 10×15 (KP-108IN)"
+        0x06, 0x07 -> "došla barvicí páska – vyměň kazetu"
+        0x08, 0x0D, 0x0E -> "špatná kazeta s páskou – vlož kazetu KP-108IN"
+        0x09 -> "došel papír i barvicí páska – vyměň obojí (sada KP-108IN)"
+        ERROR_MISMATCH -> "papír nebo páska nesedí – vlož sadu KP-108IN"
+        0x0B -> "zaseknutý papír – vytáhni ho a zasuň zásobník"
+        0x0C -> "zaseknutá páska – vyndej a znovu vlož kazetu"
+        else -> errorText(code)
+    }
 
     private fun fail(message: String): IppClient.Result {
         AppLog.e(TAG, "Tisk selhal: $message")
@@ -300,17 +352,54 @@ object SelphyUsb {
             return Status(raw[0].toInt() and 0xFF, raw[2].toInt() and 0xFF, raw[6].toInt() and 0x0F, raw)
         }
 
-        /** Čte stav každou sekundu, dokud nesplní [done]. Chyba tiskárny = výjimka, vypršení času = null. */
-        fun waitFor(timeoutMs: Long, done: (Status) -> Boolean): Status? {
-            val end = System.currentTimeMillis() + timeoutMs
+        /** Nastaví se, když během [waitFor] tiskárna hlásila problém (a obsluha ho vyřešila). */
+        var hadProblem = false
+
+        /**
+         * Čte stav každou sekundu, dokud nesplní [done]; vypršení času = null.
+         * Problém tiskárny (papír, páska, zaseknutí; s [requirePostcard] i jiný papír než 10×15) zobrazí
+         * v [problem] a čeká až [WAIT_FIX_MS] na vyřešení – čas [timeoutMs] pak běží znovu od vyřešení.
+         * Neznámý příkaz nebo nevyřešený problém = výjimka.
+         */
+        fun waitFor(timeoutMs: Long, requirePostcard: Boolean = false, done: (Status) -> Boolean): Status? {
+            val start = System.currentTimeMillis()
+            var end = start + timeoutMs
+            // Pevný strop: i když tiskárna střídá chybu a bezchybný stav, čekání jednou skončí (a pustí zámek).
+            val hardEnd = start + WAIT_FIX_MS + timeoutMs
+            var fixDeadline = 0L
             var last: String? = null
             while (System.currentTimeMillis() < end) {
+                if (System.currentTimeMillis() > hardEnd) {
+                    throw PrinterException((problem ?: "tiskárna nereaguje") + " – nevyřešeno do ${WAIT_FIX_MS / 60_000} minut")
+                }
                 val s = readStatus()
                 if (s != null) {
                     if (s.toString() != last) AppLog.i(TAG, "Stav: $s (${s.stateText})")
                     last = s.toString()
-                    if (s.error != 0) throw PrinterException(errorText(s.error))
-                    if (done(s)) return s
+                    if (s.error == 0x10) throw PrinterException(errorText(s.error))
+                    val issue = when {
+                        s.error != 0 -> fixText(s.error)
+                        requirePostcard && (s.media == 0x02 || s.media == 0x03) -> "jiný papír (${s.mediaText}) – vlož papír 10×15 (KP-108IN)"
+                        else -> null
+                    }
+                    val now = System.currentTimeMillis()
+                    if (issue != null) {
+                        if (problem != issue) {
+                            AppLog.w(TAG, "Tiskárna čeká na obsluhu: $issue")
+                            problem = issue
+                        }
+                        hadProblem = true
+                        if (fixDeadline == 0L) fixDeadline = now + WAIT_FIX_MS
+                        if (now > fixDeadline) throw PrinterException("$issue – nevyřešeno do ${WAIT_FIX_MS / 60_000} minut")
+                        end = now + timeoutMs
+                    } else {
+                        if (problem != null) {
+                            AppLog.i(TAG, "Problém tiskárny vyřešen, pokračuji")
+                            problem = null
+                        }
+                        fixDeadline = 0L
+                        if (done(s)) return s
+                    }
                 }
                 Thread.sleep(1000)
             }

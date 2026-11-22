@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -38,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -48,7 +52,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import kotlin.math.max
 import kotlin.math.min
 import androidx.compose.ui.graphics.Color
@@ -78,6 +81,8 @@ import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.SelphyUsb
 import cz.fotokiosek.SystemPrint
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.asCoroutineDispatcher
+import java.io.File
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -93,6 +98,7 @@ sealed interface Screen {
     data class Email(val photo: Bitmap, val email: String = "") : Screen
     data class Confirm(val photo: Bitmap, val email: String) : Screen
     data object Sent : Screen
+    data object Gallery : Screen
     data object Admin : Screen
 }
 
@@ -117,6 +123,9 @@ fun KioskApp(
     var printFor by remember { mutableStateOf<Bitmap?>(null) }
     /** Tisková verze poslední fotky (ořez na papír + logo) – ukazuje se po vyfocení a tiskne se. */
     var printPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    /** Fotka otevřená z galerie – „Znovu“ se pak vrací do galerie. */
+    var fromGallery by remember { mutableStateOf(false) }
+    var askGalleryPin by remember { mutableStateOf(false) }
     var printing by remember { mutableStateOf(false) }
     val flash = remember { Animatable(0f) }
 
@@ -125,6 +134,54 @@ fun KioskApp(
         askPin = false
         printFor = null
         printPhoto = null
+        fromGallery = false
+        askGalleryPin = false
+    }
+
+    /** E-mailová verze (celá fotka s logem) a tisková verze (ořez na papír + logo; jen při zapnutém tisku). */
+    suspend fun prepare(raw: Bitmap): Pair<Bitmap, Bitmap?> = withContext(Dispatchers.Default) {
+        val mail = runCatching { LogoStore.applyToPhoto(context, settings, raw) }.getOrDefault(raw)
+        // Při zapnutém tisku se ukáže rovnou tisková verze (přesně to, co vyjde z tiskárny).
+        val print = if (!settings.printEnabled) null else runCatching { PrintLayout.forPrint(context, settings, raw) }
+            .onFailure { AppLog.e("Tisk", "Příprava tiskové verze fotky selhala", it) }
+            .getOrNull()
+        mail to print
+    }
+
+    /** Špatný PIN (správce i galerie) se počítá společně – po MAX_PIN_FAILURES se zadávání zamkne. */
+    fun pinResult(ok: Boolean): Boolean {
+        if (ok) {
+            pinFailures = 0
+        } else if (++pinFailures >= MAX_PIN_FAILURES) {
+            pinFailures = 0
+            pinLockedUntil = SystemClock.elapsedRealtime() + PIN_LOCK_MS
+            askPin = false
+            askGalleryPin = false
+            AppLog.w("Správa", "$MAX_PIN_FAILURES× špatný PIN – zadávání PINu zamčeno na ${PIN_LOCK_MS / 60_000} min")
+            notice = Notice("Moc špatných pokusů. Zadávání PINu je na ${PIN_LOCK_MS / 60_000} minut zamčené.")
+        }
+        return ok
+    }
+
+    fun pinLocked(): Boolean {
+        val left = pinLockedUntil - SystemClock.elapsedRealtime()
+        if (left > 0) notice = Notice("Zadávání PINu je zamčené kvůli špatným pokusům. Zkus to za ${left / 60_000 + 1} min.")
+        return left > 0
+    }
+
+    fun openFromGallery(file: File) {
+        scope.launch {
+            val raw = withContext(Dispatchers.IO) { runCatching { PhotoStore.load(file) }.getOrNull() }
+            if (raw == null) {
+                notice = Notice("Fotku se nepodařilo otevřít.")
+                return@launch
+            }
+            val (mail, print) = prepare(raw)
+            if (screen != Screen.Gallery) return@launch // mezitím zpět na úvod (nečinnost)
+            fromGallery = true
+            printPhoto = print
+            screen = Screen.Review(mail)
+        }
     }
 
     fun shoot() {
@@ -164,14 +221,15 @@ fun KioskApp(
             // „Úsměv!“ ať je vidět aspoň chvilku, i když je fotka hotová hned
             waitUntil(end + 500)
             result.onSuccess { raw ->
-                val (final, forPrint) = withContext(Dispatchers.Default) {
-                    val mail = runCatching { LogoStore.applyToPhoto(context, settings, raw) }.getOrDefault(raw)
-                    // Při zapnutém tisku se ukáže rovnou tisková verze (přesně to, co vyjde z tiskárny).
-                    val print = if (!settings.printEnabled) null else runCatching { PrintLayout.forPrint(context, settings, raw) }
-                        .onFailure { AppLog.e("Tisk", "Příprava tiskové verze fotky selhala", it) }
-                        .getOrNull()
-                    mail to print
+                // Galerie (jen když ji obsluha zapnula PINem): fotka bez loga, aby šla znovu tisknout i posílat.
+                if (settings.galleryPin.isNotEmpty()) {
+                    val keepDays = settings.keepDays
+                    launch(Dispatchers.IO) {
+                        runCatching { PhotoStore.saveToGallery(context, raw, keepDays) }
+                            .onFailure { AppLog.e("Galerie", "Uložení fotky do galerie selhalo", it) }
+                    }
                 }
+                val (final, forPrint) = prepare(raw)
                 printPhoto = forPrint
                 screen = Screen.Review(final)
             }.onFailure { e ->
@@ -257,7 +315,10 @@ fun KioskApp(
             val idleSeconds = (SystemClock.elapsedRealtime() - lastTouch.value) / 1000
             val limit = if (screen == Screen.Admin) 180 else settings.idleTimeout.coerceAtLeast(10)
             if (screen != Screen.Idle && screen !is Screen.Countdown && idleSeconds >= limit) goIdle()
-            if (askPin && idleSeconds >= 30) askPin = false
+            if ((askPin || askGalleryPin) && idleSeconds >= 30) {
+                askPin = false
+                askGalleryPin = false
+            }
         }
     }
     LaunchedEffect(screen) {
@@ -281,13 +342,23 @@ fun KioskApp(
             LivePreview(camera, settings.fillScreen, if (showGuide) PrintMedia.forSettings(settings) else null)
 
             when (val s = screen) {
-                Screen.Idle -> IdleScreen(settings, camera.error, onShoot = { shoot() })
+                Screen.Idle -> IdleScreen(
+                    settings, camera.error,
+                    onShoot = { shoot() },
+                    onGallery = if (settings.galleryPin.isEmpty()) null else ({ if (!pinLocked()) askGalleryPin = true }),
+                )
                 is Screen.Countdown -> CountdownOverlay(s.value)
                 is Screen.Review -> ReviewScreen(
                     photo = printPhoto ?: s.photo,
                     canPrint = settings.printEnabled,
                     printing = printing,
-                    onRetake = { goIdle() },
+                    retakeLabel = if (fromGallery) "Galerie" else "Znovu",
+                    onRetake = {
+                        // Zpět do galerie jen znovu s PINem – fotku mohl mezitím převzít zákazník.
+                        val back = fromGallery
+                        goIdle()
+                        if (back && !pinLocked()) askGalleryPin = true
+                    },
                     onPrint = { printFor = printPhoto ?: s.photo },
                     onSend = { screen = Screen.Email(s.photo) },
                 )
@@ -302,6 +373,7 @@ fun KioskApp(
                     onConfirm = { send(s.photo, s.email) },
                 )
                 Screen.Sent -> SentScreen(onDone = { goIdle() })
+                Screen.Gallery -> GalleryScreen(settings.keepDays, onOpen = { openFromGallery(it) }, onClose = { goIdle() })
                 Screen.Admin -> AdminScreen(
                     settings, camera, pickLogo,
                     onActivity = { lastTouch.longValue = SystemClock.elapsedRealtime() },
@@ -309,33 +381,59 @@ fun KioskApp(
                 )
             }
 
+            // Tiskárna čeká na obsluhu (došel papír, páska…) – drží se na obrazovce, dokud to někdo nevyřeší.
+            SelphyUsb.problem?.let { problem ->
+                if (screen != Screen.Admin) {
+                    Text(
+                        "Tiskárna: $problem.\nZavolej prosím obsluhu – tisk pak sám pokračuje.",
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(start = 140.dp, end = 140.dp, top = 16.dp)
+                            .fillMaxWidth()
+                            .background(Color(0xFFB26A00), RoundedCornerShape(16.dp))
+                            .padding(20.dp),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+
             if (screen != Screen.Admin) {
                 AdminCorner(Modifier.align(Alignment.TopStart)) {
-                    val left = pinLockedUntil - SystemClock.elapsedRealtime()
-                    if (left > 0) notice = Notice("Menu správce je zamčené kvůli špatnému PINu. Zkus to za ${left / 60_000 + 1} min.")
-                    else askPin = true
+                    if (!pinLocked()) askPin = true
                 }
             }
             if (askPin) {
                 PinPad(
                     onCancel = { askPin = false },
                     onEnter = { pin ->
-                        val ok = pin == settings.pin
-                        if (ok) {
-                            pinFailures = 0
-                            askPin = false
-                            screen = Screen.Admin
-                        } else if (++pinFailures >= MAX_PIN_FAILURES) {
-                            pinFailures = 0
-                            pinLockedUntil = SystemClock.elapsedRealtime() + PIN_LOCK_MS
-                            askPin = false
-                            AppLog.w("Správa", "$MAX_PIN_FAILURES× špatný PIN – menu správce zamčeno na ${PIN_LOCK_MS / 60_000} min")
-                            notice = Notice("Moc špatných pokusů. Menu správce je na ${PIN_LOCK_MS / 60_000} minut zamčené.")
+                        pinResult(pin == settings.pin).also { ok ->
+                            if (ok) {
+                                askPin = false
+                                screen = Screen.Admin
+                            }
                         }
-                        ok
                     },
                 )
             }
+            if (askGalleryPin) {
+                PinPad(
+                    onCancel = { askGalleryPin = false },
+                    title = "PIN pro galerii",
+                    onEnter = { pin ->
+                        // Galerii otevře PIN obsluhy i PIN správce.
+                        val ok = settings.galleryPin.isNotEmpty() && (pin == settings.galleryPin || pin == settings.pin)
+                        pinResult(ok).also {
+                            if (it) {
+                                askGalleryPin = false
+                                screen = Screen.Gallery
+                            }
+                        }
+                    },
+                )
+            }
+
 
             printFor?.let { photo ->
                 CopiesDialog(
@@ -484,9 +582,24 @@ private fun LogoBadge(modifier: Modifier) {
 }
 
 @Composable
-private fun IdleScreen(settings: KioskSettings, cameraError: String?, onShoot: () -> Unit) {
+private fun IdleScreen(settings: KioskSettings, cameraError: String?, onShoot: () -> Unit, onGallery: (() -> Unit)?) {
     Box(Modifier.fillMaxSize()) {
-        if (settings.logoOnScreen) LogoBadge(Modifier.align(Alignment.TopEnd).padding(24.dp))
+        Column(Modifier.align(Alignment.TopEnd).padding(24.dp), horizontalAlignment = Alignment.End) {
+            if (onGallery != null) {
+                Text(
+                    "Galerie",
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(onClick = onGallery)
+                        .padding(horizontal = 24.dp, vertical = 14.dp),
+                    fontSize = 22.sp,
+                    color = Color.White.copy(alpha = 0.85f),
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+            if (settings.logoOnScreen) LogoBadge(Modifier)
+        }
         Text(
             settings.welcomeText,
             modifier = Modifier
@@ -558,6 +671,7 @@ private fun ReviewScreen(
     photo: Bitmap,
     canPrint: Boolean,
     printing: Boolean,
+    retakeLabel: String,
     onRetake: () -> Unit,
     onPrint: () -> Unit,
     onSend: () -> Unit,
@@ -578,12 +692,63 @@ private fun ReviewScreen(
             Modifier.widthIn(max = if (canPrint) 1200.dp else 900.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            BigButton("Znovu", Modifier.weight(1f), primary = false, onClick = onRetake)
+            BigButton(retakeLabel, Modifier.weight(1f), primary = false, onClick = onRetake)
             if (canPrint) {
                 BigButton(if (printing) "Tisknu…" else "Vytisknout", Modifier.weight(1.2f), enabled = !printing, onClick = onPrint)
             }
             BigButton("Poslat na e-mail", Modifier.weight(1.4f), onClick = onSend)
         }
+    }
+}
+
+/** Náhledy galerie se dekódují nejvýš dva najednou (rychlé posouvání by jinak spustilo desítky naráz). */
+private val ThumbnailDispatcher = java.util.concurrent.Executors.newFixedThreadPool(2).asCoroutineDispatcher()
+
+/** Galerie pro obsluhu: mřížka fotek (nejnovější první), klepnutí = otevřít jako po vyfocení (tisk / e-mail). */
+@Composable
+private fun GalleryScreen(keepDays: Int, onOpen: (File) -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
+    BackHandler(onBack = onClose)
+    val files by produceState<List<File>?>(null) {
+        value = withContext(Dispatchers.IO) { runCatching { PhotoStore.gallery(context, keepDays) }.getOrDefault(emptyList()) }
+    }
+    Column(Modifier.fillMaxSize().background(Dark).padding(24.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Galerie", fontSize = 40.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            BigButton("Zavřít", Modifier.width(220.dp), primary = false, onClick = onClose)
+        }
+        Spacer(Modifier.height(16.dp))
+        val list = files
+        when {
+            list == null -> Text("Načítám fotky…", fontSize = 26.sp)
+            list.isEmpty() -> Text("Zatím tu nejsou žádné fotky.", fontSize = 26.sp)
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(240.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(list, key = { it.name }) { file -> GalleryItem(file, onClick = { onOpen(file) }) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GalleryItem(file: File, onClick: () -> Unit) {
+    // Náhled se načte zmenšený na pozadí, až když je položka vidět.
+    val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file) {
+        value = withContext(ThumbnailDispatcher) { runCatching { PhotoStore.thumbnail(file, 400)?.asImageBitmap() }.getOrNull() }
+    }
+    val time = remember(file) { java.text.SimpleDateFormat("d. M. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(file.lastModified())) }
+    Column(
+        Modifier.clip(RoundedCornerShape(16.dp)).background(KeyColor).clickable(onClick = onClick).padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+            thumb?.let { Image(it, contentDescription = "Fotka $time", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+        }
+        Text(time, fontSize = 20.sp, modifier = Modifier.padding(top = 6.dp))
     }
 }
 

@@ -78,6 +78,7 @@ import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.Updater
+import cz.fotokiosek.PhotoStore
 import cz.fotokiosek.SelphyUsb
 import cz.fotokiosek.UsbPrinters
 import kotlinx.coroutines.Dispatchers
@@ -110,7 +111,7 @@ fun AdminCorner(modifier: Modifier, onUnlock: () -> Unit) {
 }
 
 @Composable
-fun PinPad(onCancel: () -> Unit, onEnter: (String) -> Boolean) {
+fun PinPad(onCancel: () -> Unit, title: String = "PIN správce", onEnter: (String) -> Boolean) {
     var pin by remember { mutableStateOf("") }
     var wrong by remember { mutableStateOf(false) }
     Box(
@@ -121,7 +122,7 @@ fun PinPad(onCancel: () -> Unit, onEnter: (String) -> Boolean) {
         contentAlignment = Alignment.Center,
     ) {
         Column(Modifier.width(380.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("PIN správce", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            Text(title, fontSize = 32.sp, fontWeight = FontWeight.Bold)
             Text(if (pin.isEmpty()) " " else "•".repeat(pin.length), fontSize = 48.sp)
             Text(if (wrong) "Špatný PIN" else " ", color = Color(0xFFFF6E6E), fontSize = 22.sp)
             Spacer(Modifier.height(12.dp))
@@ -196,6 +197,9 @@ fun AdminScreen(
     var newPin by remember { mutableStateOf("") }
     var newPin2 by remember { mutableStateOf("") }
     var pinMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    var galleryPinNew by remember { mutableStateOf("") }
+    var galleryOn by remember { mutableStateOf(settings.galleryPin.isNotEmpty()) }
+    var galleryMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var previewRotation by remember { mutableIntStateOf(settings.previewRotation) }
     var logoChoice by remember { mutableStateOf(settings.logoChoice) }
     var printerModel by remember { mutableStateOf(settings.printerModel) }
@@ -473,6 +477,7 @@ fun AdminScreen(
                     newPin.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
                     newPin != newPin2 -> "PINy se neshodují." to false
                     newPin == settings.pin -> "Tohle už je současný PIN." to false
+                    newPin == settings.galleryPin -> "Tenhle PIN má galerie – PIN správce musí být jiný." to false
                     !settings.savePin(newPin) -> "PIN se nepodařilo uložit, zkus to znovu." to false
                     else -> {
                         AppLog.i("Správa", "PIN správce změněn")
@@ -483,6 +488,48 @@ fun AdminScreen(
                 }
             }) { Text("Změnit PIN") }
             pinMessage?.let { (text, ok) ->
+                Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
+            }
+
+            Text("Galerie fotek pro obsluhu", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                (if (galleryOn) "Galerie je zapnutá – tlačítko „Galerie“ vpravo nahoře na úvodní obrazovce. "
+                else "Galerie je vypnutá. Nastavením PINu ji zapneš. ") +
+                    "Obsluha v ní najde fotky z posledních dnů (maže se podle „Mazat fotky po“) a může je znovu vytisknout nebo poslat. " +
+                    "PIN obsluhy musí být jiný než PIN správce; galerie jde otevřít i PINem správce.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            Field("Nový PIN pro galerii (4–8 číslic)", galleryPinNew, number = true, password = true) {
+                galleryPinNew = it.filter(Char::isDigit).take(8); galleryMessage = null
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = {
+                    galleryMessage = when {
+                        galleryPinNew.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
+                        galleryPinNew == settings.pin -> "PIN galerie musí být jiný než PIN správce." to false
+                        !settings.saveGalleryPin(galleryPinNew) -> "PIN se nepodařilo uložit, zkus to znovu." to false
+                        else -> {
+                            AppLog.i("Správa", "PIN galerie nastaven")
+                            galleryPinNew = ""
+                            galleryOn = true
+                            "PIN galerie uložen ✔ Galerie je zapnutá." to true
+                        }
+                    }
+                }) { Text(if (galleryOn) "Změnit PIN galerie" else "Zapnout galerii") }
+                if (galleryOn) {
+                    OutlinedButton(onClick = {
+                        settings.saveGalleryPin("")
+                        galleryOn = false
+                        // Vlastní vlákno: mazání nesmí přerušit zavření menu.
+                        val appContext = context.applicationContext
+                        Thread { PhotoStore.clearGallery(appContext) }.start()
+                        AppLog.i("Správa", "Galerie vypnuta")
+                        galleryMessage = "Galerie vypnutá, fotky z ní smazané." to true
+                    }) { Text("Vypnout galerii (smaže její fotky)") }
+                }
+            }
+            galleryMessage?.let { (text, ok) ->
                 Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
             }
 
@@ -636,6 +683,7 @@ fun AdminScreen(
                             }
                         }
                     }) { Text("Otestovat tiskárnu") }
+                    SelphyUsb.problem?.let { Text("⚠ Tiskárna čeká na obsluhu: $it", fontSize = 18.sp, color = Accent) }
                     printerTest?.let { Text(it, fontSize = 18.sp) }
                     Text(
                         "USB zařízení, která automat vidí: " + usbDevices.joinToString("; ").ifEmpty { "žádné" },
