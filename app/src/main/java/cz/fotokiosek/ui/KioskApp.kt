@@ -68,8 +68,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import cz.fotokiosek.AiStyle
+import cz.fotokiosek.AiStyles
 import cz.fotokiosek.AppLog
 import cz.fotokiosek.CameraController
+import cz.fotokiosek.GeminiClient
 import cz.fotokiosek.IppClient
 import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
@@ -99,6 +102,11 @@ sealed interface Screen {
     data class Confirm(val photo: Bitmap, val email: String) : Screen
     data object Sent : Screen
     data object Gallery : Screen
+    /** AI FOTOKIOSEK: výběr stylu pro fotku [raw]. */
+    data class AiPick(val raw: Bitmap) : Screen
+    /** AI právě upravuje fotku. */
+    data class AiWorking(val raw: Bitmap, val style: AiStyle) : Screen
+    data class AiFailed(val raw: Bitmap, val message: String) : Screen
     data object Admin : Screen
 }
 
@@ -127,6 +135,10 @@ fun KioskApp(
     var fromGallery by remember { mutableStateOf(false) }
     var askGalleryPin by remember { mutableStateOf(false) }
     var printing by remember { mutableStateOf(false) }
+    /** AI FOTOKIOSEK: původní fotka, poslední AI výsledek a počet pokusů u aktuální fotky. */
+    var aiRaw by remember { mutableStateOf<Bitmap?>(null) }
+    var aiLast by remember { mutableStateOf<Bitmap?>(null) }
+    var aiTries by remember { mutableIntStateOf(0) }
     val flash = remember { Animatable(0f) }
 
     fun goIdle() {
@@ -136,6 +148,9 @@ fun KioskApp(
         printPhoto = null
         fromGallery = false
         askGalleryPin = false
+        aiRaw = null
+        aiLast = null
+        aiTries = 0
     }
 
     /** E-mailová verze (celá fotka s logem) a tisková verze (ořez na papír + logo; jen při zapnutém tisku). */
@@ -167,6 +182,75 @@ fun KioskApp(
         val left = pinLockedUntil - SystemClock.elapsedRealtime()
         if (left > 0) notice = Notice("Zadávání PINu je zamčené kvůli špatným pokusům. Zkus to za ${left / 60_000 + 1} min.")
         return left > 0
+    }
+
+    /** Galerie: s PINem (když je vyžadovaný), jinak rovnou. */
+    fun openGallery() {
+        if (!settings.galleryRequirePin) {
+            screen = Screen.Gallery
+        } else if (!pinLocked()) {
+            askGalleryPin = true
+        }
+    }
+
+    fun saveToGallery(photo: Bitmap) {
+        if (!settings.galleryEnabled) return
+        val keepDays = settings.keepDays
+        scope.launch(Dispatchers.IO) {
+            runCatching { PhotoStore.saveToGallery(context, photo, keepDays) }
+                .onFailure { AppLog.e("Galerie", "Uložení fotky do galerie selhalo", it) }
+        }
+    }
+
+    /** Hotová fotka (původní nebo z AI) → logo, tisková verze → obrazovka s tiskem a e-mailem. */
+    fun showResult(photo: Bitmap) {
+        val from = screen
+        scope.launch {
+            val (mail, print) = prepare(photo)
+            if (screen !== from) return@launch // mezitím jinam (nečinnost, dvojí klepnutí)
+            printPhoto = print
+            screen = Screen.Review(mail)
+        }
+    }
+
+    fun aiStyles(): List<AiStyle> = AiStyles.load(settings).filter { it.enabled }
+    fun aiActive() = settings.aiEnabled && settings.geminiApiKey.isNotBlank() && aiStyles().isNotEmpty()
+    fun aiTriesLeft() = (settings.aiMaxTries.coerceIn(1, 20) - aiTries).coerceAtLeast(0)
+
+    fun pickAiStyle(raw: Bitmap, style: AiStyle) {
+        if (aiTriesLeft() <= 0) return
+        aiTries++
+        val working = Screen.AiWorking(raw, style)
+        screen = working
+        val apiKey = settings.geminiApiKey
+        val model = settings.geminiModel.ifBlank { GeminiClient.DEFAULT_MODEL }
+        val media = if (settings.printEnabled) PrintMedia.forSettings(settings) else null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    // Při tisku poslat rovnou ve tvaru papíru – AI pak skládá obraz přímo pro výtisk.
+                    val source = if (media != null) PrintLayout.fit(raw, media) else raw
+                    GeminiClient.stylize(apiKey, model, source, AiStyles.fullPrompt(style))
+                }
+            }
+            if (screen !== working) {
+                // Zrušeno – zaplacený výsledek ale nezahodit, když zákazník pořád vybírá styl k téže fotce.
+                if (aiRaw === raw) result.getOrNull()?.let { aiLast = it; saveToGallery(it) }
+                return@launch
+            }
+            result.onSuccess { image ->
+                AppLog.i("AI", "Styl ${style.name} hotový")
+                aiLast = image
+                saveToGallery(image)
+                showResult(image)
+            }.onFailure { e ->
+                if (e is CancellationException) throw e
+                val message = (e as? GeminiClient.AiException)?.message ?: "Neočekávaná chyba: ${AppLog.causes(e)}"
+                AppLog.e("AI", "Styl ${style.name} selhal: $message", e)
+                settings.lastError = "${java.text.DateFormat.getDateTimeInstance().format(java.util.Date())}: AI: $message"
+                screen = Screen.AiFailed(raw, message)
+            }
+        }
     }
 
     fun openFromGallery(file: File) {
@@ -221,13 +305,15 @@ fun KioskApp(
             // „Úsměv!“ ať je vidět aspoň chvilku, i když je fotka hotová hned
             waitUntil(end + 500)
             result.onSuccess { raw ->
-                // Galerie (jen když ji obsluha zapnula PINem): fotka bez loga, aby šla znovu tisknout i posílat.
-                if (settings.galleryPin.isNotEmpty()) {
-                    val keepDays = settings.keepDays
-                    launch(Dispatchers.IO) {
-                        runCatching { PhotoStore.saveToGallery(context, raw, keepDays) }
-                            .onFailure { AppLog.e("Galerie", "Uložení fotky do galerie selhalo", it) }
-                    }
+                // Galerie (když je zapnutá): fotka bez loga, aby šla znovu tisknout i posílat.
+                saveToGallery(raw)
+                if (aiActive()) {
+                    // AI FOTOKIOSEK: nejdřív výběr stylu.
+                    aiRaw = raw
+                    aiLast = null
+                    aiTries = 0
+                    screen = Screen.AiPick(raw)
+                    return@onSuccess
                 }
                 val (final, forPrint) = prepare(raw)
                 printPhoto = forPrint
@@ -314,7 +400,9 @@ fun KioskApp(
             delay(1000)
             val idleSeconds = (SystemClock.elapsedRealtime() - lastTouch.value) / 1000
             val limit = if (screen == Screen.Admin) 180 else settings.idleTimeout.coerceAtLeast(10)
-            if (screen != Screen.Idle && screen !is Screen.Countdown && idleSeconds >= limit) goIdle()
+            // Odpočet se neruší; čekání na AI má delší limit (síť může viset déle než timeout klienta).
+            val effectiveLimit = if (screen is Screen.AiWorking) AI_WORKING_LIMIT_S else limit
+            if (screen != Screen.Idle && screen !is Screen.Countdown && idleSeconds >= effectiveLimit) goIdle()
             if ((askPin || askGalleryPin) && idleSeconds >= 30) {
                 askPin = false
                 askGalleryPin = false
@@ -322,6 +410,8 @@ fun KioskApp(
         }
     }
     LaunchedEffect(screen) {
+        // Nová obrazovka = čas nečinnosti od nuly (jinak by např. AI výsledek po dlouhém čekání hned zmizel).
+        lastTouch.longValue = SystemClock.elapsedRealtime()
         if (screen == Screen.Sent) {
             delay(8000)
             goIdle()
@@ -345,7 +435,7 @@ fun KioskApp(
                 Screen.Idle -> IdleScreen(
                     settings, camera.error,
                     onShoot = { shoot() },
-                    onGallery = if (settings.galleryPin.isEmpty()) null else ({ if (!pinLocked()) askGalleryPin = true }),
+                    onGallery = if (settings.galleryEnabled) ({ openGallery() }) else null,
                 )
                 is Screen.Countdown -> CountdownOverlay(s.value)
                 is Screen.Review -> ReviewScreen(
@@ -354,13 +444,19 @@ fun KioskApp(
                     printing = printing,
                     retakeLabel = if (fromGallery) "Galerie" else "Znovu",
                     onRetake = {
-                        // Zpět do galerie jen znovu s PINem – fotku mohl mezitím převzít zákazník.
+                        // Zpět do galerie (s PINem, když je vyžadovaný) – fotku mohl mezitím převzít zákazník.
                         val back = fromGallery
                         goIdle()
-                        if (back && !pinLocked()) askGalleryPin = true
+                        if (back) openGallery()
                     },
                     onPrint = { printFor = printPhoto ?: s.photo },
                     onSend = { screen = Screen.Email(s.photo) },
+                    extra = aiRaw?.let { raw ->
+                        listOfNotNull(
+                            if (aiTriesLeft() > 0 || aiLast != null) "Zkusit jiný styl" to { printPhoto = null; screen = Screen.AiPick(raw) } else null,
+                            "Použít původní fotku" to { showResult(raw) },
+                        )
+                    }.orEmpty(),
                 )
                 is Screen.Email -> EmailScreen(
                     initial = s.email,
@@ -373,6 +469,22 @@ fun KioskApp(
                     onConfirm = { send(s.photo, s.email) },
                 )
                 Screen.Sent -> SentScreen(onDone = { goIdle() })
+                is Screen.AiPick -> AiPickScreen(
+                    styles = remember(s) { aiStyles() },
+                    triesLeft = aiTriesLeft(),
+                    lastResult = aiLast,
+                    onPick = { pickAiStyle(s.raw, it) },
+                    onOriginal = { showResult(s.raw) },
+                    onLastResult = { aiLast?.let { showResult(it) } },
+                )
+                is Screen.AiWorking -> AiWorkingScreen(s.style, onCancel = { screen = Screen.AiPick(s.raw) })
+                is Screen.AiFailed -> AiFailedScreen(
+                    message = s.message,
+                    canTryAgain = aiTriesLeft() > 0,
+                    onOriginal = { showResult(s.raw) },
+                    onOtherStyle = { screen = Screen.AiPick(s.raw) },
+                    onLastResult = aiLast?.let { last -> { showResult(last) } },
+                )
                 Screen.Gallery -> GalleryScreen(settings.keepDays, onOpen = { openFromGallery(it) }, onClose = { goIdle() })
                 Screen.Admin -> AdminScreen(
                     settings, camera, pickLogo,
@@ -422,8 +534,8 @@ fun KioskApp(
                     onCancel = { askGalleryPin = false },
                     title = "PIN pro galerii",
                     onEnter = { pin ->
-                        // Galerii otevře PIN obsluhy i PIN správce.
-                        val ok = settings.galleryPin.isNotEmpty() && (pin == settings.galleryPin || pin == settings.pin)
+                        // Galerii otevře vlastní PIN galerie (když je nastavený) i PIN správce.
+                        val ok = (settings.galleryPin.isNotEmpty() && pin == settings.galleryPin) || pin == settings.pin
                         pinResult(ok).also {
                             if (it) {
                                 askGalleryPin = false
@@ -466,6 +578,8 @@ fun KioskApp(
 private const val PREFOCUS_MS = 800L
 private const val MAX_PIN_FAILURES = 5
 private const val PIN_LOCK_MS = 5 * 60_000L
+/** Po kolika s nečinnosti se zruší čekání na AI (klient má limit 120 s na čtení). */
+private const val AI_WORKING_LIMIT_S = 180
 
 /**
  * Živý náhled – snímky jsou už otočené a zrcadlené stejně jako výsledná fotka
@@ -587,14 +701,16 @@ private fun IdleScreen(settings: KioskSettings, cameraError: String?, onShoot: (
         Column(Modifier.align(Alignment.TopEnd).padding(24.dp), horizontalAlignment = Alignment.End) {
             if (onGallery != null) {
                 Text(
-                    "Galerie",
+                    "🖼  Galerie",
                     modifier = Modifier
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clip(RoundedCornerShape(32.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .border(3.dp, Accent, RoundedCornerShape(32.dp))
                         .clickable(onClick = onGallery)
-                        .padding(horizontal = 24.dp, vertical = 14.dp),
-                    fontSize = 22.sp,
-                    color = Color.White.copy(alpha = 0.85f),
+                        .padding(horizontal = 32.dp, vertical = 18.dp),
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
                 )
                 Spacer(Modifier.height(16.dp))
             }
@@ -604,7 +720,7 @@ private fun IdleScreen(settings: KioskSettings, cameraError: String?, onShoot: (
             settings.welcomeText,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 48.dp, start = 120.dp, end = 120.dp)
+                .padding(top = 48.dp, start = if (onGallery != null) 280.dp else 120.dp, end = if (onGallery != null) 280.dp else 120.dp)
                 .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(24.dp))
                 .padding(horizontal = 32.dp, vertical = 16.dp),
             fontSize = 44.sp,
@@ -675,6 +791,8 @@ private fun ReviewScreen(
     onRetake: () -> Unit,
     onPrint: () -> Unit,
     onSend: () -> Unit,
+    /** Další tlačítka nad hlavní řadou (AI: jiný styl / původní fotka). */
+    extra: List<Pair<String, () -> Unit>> = emptyList(),
 ) {
     val image = remember(photo) { photo.asImageBitmap() }
     Column(
@@ -688,6 +806,14 @@ private fun ReviewScreen(
             modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 24.dp),
             contentScale = ContentScale.Fit,
         )
+        if (extra.isNotEmpty()) {
+            Row(
+                Modifier.widthIn(max = 1000.dp).fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                extra.forEach { (label, action) -> BigButton(label, Modifier.weight(1f), primary = false, onClick = action) }
+            }
+        }
         Row(
             Modifier.widthIn(max = if (canPrint) 1200.dp else 900.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(24.dp),

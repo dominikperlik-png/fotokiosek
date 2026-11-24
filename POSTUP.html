@@ -142,6 +142,7 @@ Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</
     <li><a href="#zrcadlovka">Zrcadlovka Canon EOS</a></li>
     <li><a href="#tisk">Tisk fotek</a></li>
     <li><a href="#logo">Vlastní logo</a></li>
+    <li><a href="#ai">AI FOTOKIOSEK</a></li>
     <li><a href="#aktualizace">Aktualizace z GitHubu</a></li>
     <li><a href="#problemy">Řešení problémů</a></li>
     <li><a href="#zpet">Vrácení do původního stavu</a></li>
@@ -298,7 +299,7 @@ pin=4826</pre></div>
   <li><strong>Stav nahoře v menu:</strong> jestli je kiosek zamčený, jestli kamera funguje, kolik fotek čeká ve frontě, kolik se odeslalo a poslední chyba.</li>
   <li><strong>Kamera:</strong> zdroj obrazu (automaticky / kamera Androidu / zrcadlovka Canon), stav zrcadlovky a tlačítko <em>Znovu připojit</em>, výběr kamery, zrcadlení, náhled přes celou obrazovku (fotka se ořízne stejně jako náhled), předstih spouště.</li>
   <li><strong>Kiosek:</strong> uvítací text, délka odpočtu, návrat na úvod po nečinnosti, po kolika dnech se mažou fotky, PIN, galerie.</li>
-  <li><strong>Galerie pro obsluhu:</strong> v menu → Kiosek nastav <em>PIN pro galerii</em> (jiný než PIN správce) a klepni na <em>Zapnout galerii</em>. Na úvodní obrazovce se vpravo nahoře objeví tlačítko <strong>Galerie</strong>. Po zadání PINu (galerie nebo správce) obsluha vidí fotky z posledních dnů a může kteroukoli znovu <strong>vytisknout</strong> nebo <strong>poslat na e-mail</strong>. Fotky se mažou po stejné době jako ostatní („Mazat fotky po“). Tlačítko <em>Galerie</em> u otevřené fotky chce PIN znovu. <em>Vypnout galerii</em> smaže i všechny fotky v ní. Zákazníkům PIN galerie nedávej – jsou v ní fotky všech lidí.</li>
+  <li><strong>Galerie:</strong> v menu → Kiosek zapni <em>Galerie</em> a dej Uložit. Na úvodní obrazovce se vpravo nahoře objeví tlačítko <strong>🖼 Galerie</strong> s fotkami z posledních dnů – kteroukoli jde znovu <strong>vytisknout</strong> nebo <strong>poslat na e-mail</strong>. Přepínač <em>Vyžadovat heslo pro galerii</em>: zapnutý = galerie chce PIN (vlastní PIN galerie pro obsluhu, nebo PIN správce), vypnutý = otevře ji kdokoli jedním klepnutím – pozor, pak každý uvidí fotky všech lidí. Fotky se mažou po stejné době jako ostatní („Mazat fotky po“). Vypnutím galerie (a Uložit) se smažou i všechny fotky v ní.</li>
   <li><strong>Logo, Tisk:</strong> viz kapitoly níže.</li>
   <li><strong>E-mail:</strong> tlačítka Gmail / Seznam / Brevo vyplní server. <em>Otestovat připojení k mailu</em> ukáže přesnou příčinu chyby; <em>Zobrazit komunikaci se serverem</em> ukáže, co server odpověděl.</li>
   <li><strong>Aktualizace:</strong> tlačítko <em>Aktualizovat aplikaci</em>.</li>
@@ -372,6 +373,16 @@ pin=4826</pre></div>
   <li>Nebo dej soubor <code>logo.png</code> (nebo <code>logo.svg</code>) do složky vedle instalace a spusť instalaci – nahraje ho sama.</li>
   <li>Logo se ukazuje na úvodní obrazovce a vkládá do rohu fotky (do e-mailu i na tisk). Roh a velikost nastavíš v menu, jde ho i smazat nebo nahradit.</li>
   <li>Logo je uložené v paměti aplikace – přežije restart i aktualizaci.</li>
+</ul>
+
+<h2 id="ai">AI FOTOKIOSEK</h2>
+<p>Se zapnutým AI režimem si zákazník po vyfocení vybere styl (komiks, 3D animák, cyberpunk, 90s retro, superhrdina, fantasy, herní plakát, astronaut, olejomalba, anime…). Fotka se pošle do Google AI (Gemini), za 10–40 s se ukáže upravená a dál jde jako běžná fotka – logo, tisk, e-mail, galerie. Na výsledku jsou i tlačítka <em>Zkusit jiný styl</em> a <em>Použít původní fotku</em>. Když AI selže (bez internetu, chyba služby), aplikace nespadne – nabídne původní fotku.</p>
+<ul class="check">
+  <li><input type="checkbox" data-id="ai1"> V <strong>Google AI Studio</strong> (aistudio.google.com) si vytvoř API klíč a <strong>zapni placené účtování</strong> – generování obrázků zdarma není. Jedna AI fotka stojí zhruba 0,05–0,10 $.</li>
+  <li><input type="checkbox" data-id="ai2"> Menu správce → <strong>AI &amp; API nastavení</strong>: vlož klíč (očičko ho ukáže), model nech výchozí a klepni na <strong>Otestovat API připojení</strong>. Má se ukázat ✔.</li>
+  <li><input type="checkbox" data-id="ai3"> Zapni <strong>AI FOTOKIOSEK</strong>, případně nastav <em>Max. AI pokusů na jednu fotku</em> (výchozí 3 – ať děti nenaklikají desítky placených pokusů), a dej <strong>Uložit</strong>.</li>
+  <li><input type="checkbox" data-id="ai4"> Styly jdou zapínat a vypínat, upravit (název, ikona, prompt anglicky) nebo přidat vlastní – třeba speciální styl na konkrétní akci. Pokyn „zachovat obličeje, výrazy, počet lidí a pózu“ se ke každému stylu přidává sám.</li>
+  <li><input type="checkbox" data-id="ai5"> Dej na automat cedulku, že fotky upravuje AI od Google (fotky zákazníků se na chvíli posílají mimo automat).</li>
 </ul>
 
 <h2 id="aktualizace">Aktualizace z GitHubu</h2>

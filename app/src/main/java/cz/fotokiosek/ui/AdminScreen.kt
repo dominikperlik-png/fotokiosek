@@ -67,9 +67,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.work.WorkManager
+import cz.fotokiosek.AiStyle
+import cz.fotokiosek.AiStyles
 import cz.fotokiosek.AppLog
 import cz.fotokiosek.CameraController
 import cz.fotokiosek.FoundPrinter
+import cz.fotokiosek.GeminiClient
 import cz.fotokiosek.IppClient
 import cz.fotokiosek.Kiosk
 import cz.fotokiosek.KioskSettings
@@ -198,8 +201,18 @@ fun AdminScreen(
     var newPin2 by remember { mutableStateOf("") }
     var pinMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var galleryPinNew by remember { mutableStateOf("") }
-    var galleryOn by remember { mutableStateOf(settings.galleryPin.isNotEmpty()) }
+    var galleryOn by remember { mutableStateOf(settings.galleryEnabled) }
+    var galleryRequirePin by remember { mutableStateOf(settings.galleryRequirePin) }
+    var hasGalleryPin by remember { mutableStateOf(settings.galleryPin.isNotEmpty()) }
     var galleryMessage by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+    // --- AI ---
+    var aiOn by remember { mutableStateOf(settings.aiEnabled) }
+    var apiKey by remember { mutableStateOf(settings.geminiApiKey) }
+    var aiModel by remember { mutableStateOf(settings.geminiModel) }
+    var aiMaxTries by remember { mutableStateOf(settings.aiMaxTries.toString()) }
+    val aiStyleList = remember { mutableStateListOf<AiStyle>().apply { addAll(AiStyles.load(settings)) } }
+    var editingStyle by remember { mutableStateOf<String?>(null) }
+    var aiTest by remember { mutableStateOf<String?>(null) }
     var previewRotation by remember { mutableIntStateOf(settings.previewRotation) }
     var logoChoice by remember { mutableStateOf(settings.logoChoice) }
     var printerModel by remember { mutableStateOf(settings.printerModel) }
@@ -265,7 +278,8 @@ fun AdminScreen(
         }
     }
 
-    fun save() {
+    /** [explicit] = tlačítko Uložit (jen to smí při vypnutí galerie smazat její fotky). */
+    fun save(explicit: Boolean = false) {
         settings.cameraSource = cameraSource
         settings.cameraId = cameraId
         settings.mirror = mirror
@@ -301,6 +315,23 @@ fun AdminScreen(
         settings.body = body
         settings.githubRepo = githubRepo.trim()
         settings.githubToken = githubToken.trim()
+        if (!explicit && settings.galleryEnabled && !galleryOn) {
+            // Vypnutí galerie se uloží až tlačítkem Uložit (smaže fotky) – ostatní tlačítka ji nechají zapnutou.
+            galleryOn = true
+        }
+        if (settings.galleryEnabled && !galleryOn) {
+            // Vypnutí galerie smaže i její fotky (vlastní vlákno – zavření menu ho nepřeruší).
+            val appContext = context.applicationContext
+            Thread { PhotoStore.clearGallery(appContext) }.start()
+            AppLog.i("Správa", "Galerie vypnuta")
+        }
+        settings.galleryEnabled = galleryOn
+        settings.galleryRequirePin = galleryRequirePin
+        settings.aiEnabled = aiOn
+        settings.geminiApiKey = apiKey.trim()
+        settings.geminiModel = aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL }
+        settings.aiMaxTries = aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3
+        AiStyles.save(settings, aiStyleList.filter { it.name.isNotBlank() && it.prompt.isNotBlank() })
         camera.applySettings()
         AppLog.i("Správa", "Nastavení uloženo")
     }
@@ -491,46 +522,148 @@ fun AdminScreen(
                 Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
             }
 
-            Text("Galerie fotek pro obsluhu", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Galerie fotek", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            SwitchRow("Galerie – ukládat fotky a ukázat tlačítko „Galerie“ na úvodní obrazovce", galleryOn) { galleryOn = it }
             Text(
-                (if (galleryOn) "Galerie je zapnutá – tlačítko „Galerie“ vpravo nahoře na úvodní obrazovce. "
-                else "Galerie je vypnutá. Nastavením PINu ji zapneš. ") +
-                    "Obsluha v ní najde fotky z posledních dnů (maže se podle „Mazat fotky po“) a může je znovu vytisknout nebo poslat. " +
-                    "PIN obsluhy musí být jiný než PIN správce; galerie jde otevřít i PINem správce.",
+                "Z galerie jde kdykoli znovu vytisknout nebo poslat starší fotku. Fotky se mažou podle „Mazat fotky po“. " +
+                    "Vypnutím galerie (a Uložit) se smažou i všechny fotky v ní.",
                 fontSize = 15.sp,
                 color = Color.White.copy(alpha = 0.6f),
             )
-            Field("Nový PIN pro galerii (4–8 číslic)", galleryPinNew, number = true, password = true) {
-                galleryPinNew = it.filter(Char::isDigit).take(8); galleryMessage = null
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    galleryMessage = when {
-                        galleryPinNew.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
-                        galleryPinNew == settings.pin -> "PIN galerie musí být jiný než PIN správce." to false
-                        !settings.saveGalleryPin(galleryPinNew) -> "PIN se nepodařilo uložit, zkus to znovu." to false
-                        else -> {
-                            AppLog.i("Správa", "PIN galerie nastaven")
-                            galleryPinNew = ""
-                            galleryOn = true
-                            "PIN galerie uložen ✔ Galerie je zapnutá." to true
+            if (galleryOn) {
+                SwitchRow("Vyžadovat heslo pro galerii", galleryRequirePin) { galleryRequirePin = it }
+                if (!galleryRequirePin) {
+                    Text(
+                        "⚠ Bez hesla otevře galerii každý zákazník – uvidí fotky všech lidí a může si je vytisknout nebo poslat na svůj e-mail.",
+                        fontSize = 16.sp,
+                        color = Color(0xFFFF6E6E),
+                    )
+                } else {
+                    Text(
+                        if (hasGalleryPin) "Galerii otevře vlastní PIN galerie nebo PIN správce." else "Galerii otevře PIN správce (vlastní PIN galerie není nastavený).",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                    Field("Vlastní PIN galerie pro obsluhu (nepovinné, 4–8 číslic)", galleryPinNew, number = true, password = true) {
+                        galleryPinNew = it.filter(Char::isDigit).take(8); galleryMessage = null
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = {
+                            galleryMessage = when {
+                                galleryPinNew.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
+                                galleryPinNew == settings.pin -> "PIN galerie musí být jiný než PIN správce." to false
+                                !settings.saveGalleryPin(galleryPinNew) -> "PIN se nepodařilo uložit, zkus to znovu." to false
+                                else -> {
+                                    AppLog.i("Správa", "PIN galerie nastaven")
+                                    galleryPinNew = ""
+                                    hasGalleryPin = true
+                                    "PIN galerie uložen ✔" to true
+                                }
+                            }
+                        }) { Text(if (hasGalleryPin) "Změnit PIN galerie" else "Nastavit PIN galerie") }
+                        if (hasGalleryPin) {
+                            OutlinedButton(onClick = {
+                                settings.saveGalleryPin("")
+                                hasGalleryPin = false
+                                AppLog.i("Správa", "Vlastní PIN galerie zrušen")
+                                galleryMessage = "Vlastní PIN zrušen – galerii otevře PIN správce." to true
+                            }) { Text("Zrušit vlastní PIN") }
                         }
                     }
-                }) { Text(if (galleryOn) "Změnit PIN galerie" else "Zapnout galerii") }
-                if (galleryOn) {
-                    OutlinedButton(onClick = {
-                        settings.saveGalleryPin("")
-                        galleryOn = false
-                        // Vlastní vlákno: mazání nesmí přerušit zavření menu.
-                        val appContext = context.applicationContext
-                        Thread { PhotoStore.clearGallery(appContext) }.start()
-                        AppLog.i("Správa", "Galerie vypnuta")
-                        galleryMessage = "Galerie vypnutá, fotky z ní smazané." to true
-                    }) { Text("Vypnout galerii (smaže její fotky)") }
                 }
             }
             galleryMessage?.let { (text, ok) ->
                 Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
+            }
+
+            // ---------------------------------------------------------------- AI
+            Section("AI & API nastavení")
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (aiOn) Accent.copy(alpha = 0.25f) else KeyColor)
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("AI FOTOKIOSEK", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Accent)
+                    Text("Po vyfocení si zákazník vybere AI styl (Gemini).", fontSize = 16.sp)
+                }
+                Switch(checked = aiOn, onCheckedChange = { aiOn = it })
+            }
+            if (aiOn && apiKey.isBlank()) {
+                Text("⚠ Bez API klíče se AI nespustí – zákazník uvidí běžnou fotku.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
+            }
+            SecretField("Gemini API klíč", apiKey) { apiKey = it.trim(); aiTest = null }
+            Field("Model", aiModel) { aiModel = it; aiTest = null }
+            Text(
+                "Výchozí ${GeminiClient.DEFAULT_MODEL} (stabilní, ~0,10 \$ za fotku). Levnější novější: gemini-nano-banana-2.1 (~0,05 \$). " +
+                    "Název jde přepsat, když Google vydá nový model.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(onClick = { aiModel = GeminiClient.DEFAULT_MODEL; aiTest = null }) { Text("Výchozí model") }
+                Button(onClick = {
+                    aiTest = "Zkouším spojení…"
+                    val key = apiKey
+                    val model = aiModel
+                    scope.launch {
+                        val r = withContext(Dispatchers.IO) { GeminiClient.test(key, model) }
+                        aiTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                    }
+                }) { Text("Otestovat API připojení") }
+            }
+            aiTest?.let { Text(it, fontSize = 18.sp) }
+            Field("Max. AI pokusů na jednu fotku (1–20)", aiMaxTries, number = true) { aiMaxTries = it.filter(Char::isDigit).take(2) }
+            Text(
+                "Klíč z Google AI Studio musí mít zapnuté placené účtování – generování obrázků zdarma není. " +
+                    "Každý pokus se platí. Fotky se posílají do Google; na placené úrovni je Google nepoužívá ke zlepšování svých produktů. " +
+                    "Doporučená cedulka na automatu: „Fotky upravuje AI od Google.“",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+
+            Text("AI styly", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Zapnuté styly uvidí zákazník. Prompt piš anglicky – co změnit (styl, oblečení, pozadí). " +
+                    "Pokyn zachovat obličeje, výrazy, počet lidí a pózu se ke každému stylu přidá sám.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            aiStyleList.forEachIndexed { index, style ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Switch(checked = style.enabled, onCheckedChange = { aiStyleList[index] = style.copy(enabled = it) })
+                    Text("  ${style.icon} ${style.name}", fontSize = 20.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { editingStyle = if (editingStyle == style.id) null else style.id }) {
+                        Text(if (editingStyle == style.id) "Hotovo" else "Upravit")
+                    }
+                    if (!style.builtin) {
+                        TextButton(onClick = {
+                            if (editingStyle == style.id) editingStyle = null
+                            aiStyleList.removeAll { it.id == style.id }
+                        }) { Text("Smazat", color = Color(0xFFFF6E6E)) }
+                    }
+                }
+                if (editingStyle == style.id) {
+                    Field("Název (pro zákazníka)", style.name) { aiStyleList[index] = aiStyleList[index].copy(name = it.take(40)) }
+                    Field("Ikona (emoji)", style.icon) { aiStyleList[index] = aiStyleList[index].copy(icon = it.take(8)) }
+                    Field("Prompt (anglicky)", style.prompt, singleLine = false) { aiStyleList[index] = aiStyleList[index].copy(prompt = it.take(2000)) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = {
+                    val id = "custom_${System.currentTimeMillis()}"
+                    aiStyleList += AiStyle(id, "Nový styl", "✨", "Describe the new art style, the clothing and the background here.")
+                    editingStyle = id
+                }) { Text("Přidat vlastní styl") }
+                OutlinedButton(onClick = {
+                    val reset = AiStyles.resetBuiltins(aiStyleList.toList())
+                    aiStyleList.clear()
+                    aiStyleList.addAll(reset)
+                    editingStyle = null
+                }) { Text("Obnovit výchozí styly") }
             }
 
             // ---------------------------------------------------------------- Logo
@@ -871,7 +1004,7 @@ fun AdminScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 BigButton("Zavřít", Modifier.weight(1f), primary = false, onClick = onClose)
                 BigButton("Uložit", Modifier.weight(1f)) {
-                    save()
+                    save(explicit = true)
                     onClose()
                 }
             }
@@ -932,6 +1065,25 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
         Text(label, fontSize = 20.sp, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }
+}
+
+/** Pole pro tajný údaj (API klíč) s tlačítkem Ukázat / Skrýt. */
+@Composable
+private fun SecretField(label: String, value: String, onChange: (String) -> Unit) {
+    val typing = LocalAdminActivity.current
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(
+        value = value,
+        onValueChange = { typing(); onChange(it) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            TextButton(onClick = { visible = !visible }) { Text(if (visible) "🙈 Skrýt" else "👁 Ukázat") }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable

@@ -79,9 +79,35 @@ class KioskSettings(context: Context) {
     /** Okamžitě a trvale uloží nový PIN (commit, ne apply – ať přežije i okamžitý restart). */
     fun savePin(newPin: String): Boolean = prefs.edit().putString("pin", newPin).commit()
 
-    /** PIN obsluhy pro galerii (jiný než PIN správce). Prázdný = galerie vypnutá a fotky se do ní neukládají. */
+    /** Vlastní PIN obsluhy pro galerii (jiný než PIN správce). Prázdný = galerii otevře PIN správce. */
     var galleryPin by string("gallery_pin", "")
     fun saveGalleryPin(newPin: String): Boolean = prefs.edit().putString("gallery_pin", newPin).commit()
+
+    /**
+     * Galerie zapnutá (fotky se ukládají, na úvodní obrazovce je tlačítko). Dřív ji zapínal nastavený PIN galerie –
+     * kdo ho má a přepínač ještě nikdy neuložil, má galerii zapnutou dál.
+     */
+    var galleryEnabled: Boolean
+        get() = prefs.getBoolean("gallery_enabled", false)
+        set(value) = prefs.edit().putBoolean("gallery_enabled", value).apply()
+
+    /** Galerie chce PIN (galerie nebo správce). Vypnuto = otevře ji kdokoli jedním klepnutím. */
+    var galleryRequirePin by bool("gallery_require_pin", true)
+
+    // --- AI FOTOKIOSEK (Gemini API) ---
+    var aiEnabled by bool("ai_enabled", false)
+    var geminiApiKey by string("gemini_api_key", "")
+    var geminiModel by string("gemini_model", GeminiClient.DEFAULT_MODEL)
+    /** Kolik AI stylů smí zákazník zkusit u jedné fotky (každý pokus se platí). */
+    var aiMaxTries by int("ai_max_tries", 3)
+    /** Seznam stylů jako JSON (viz AiStyles); prázdné = výchozí styly. */
+    var aiStyles by string("ai_styles", "")
+
+    init {
+        boolKeys += "gallery_enabled"
+        // Migrace: dřív galerii zapínal nastavený PIN galerie – zapsat jednou, ať pozdější zrušení PINu galerii nevypne.
+        if (!prefs.contains("gallery_enabled")) prefs.edit().putBoolean("gallery_enabled", galleryPin.isNotEmpty()).apply()
+    }
 
     var sentCount by int("sent_count", 0)
     var printCount by int("print_count", 0)
