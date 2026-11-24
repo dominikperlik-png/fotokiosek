@@ -29,6 +29,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -79,6 +81,7 @@ import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
 import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
+import cz.fotokiosek.ReportWorker
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.Updater
 import cz.fotokiosek.PhotoStore
@@ -213,6 +216,14 @@ fun AdminScreen(
     val aiStyleList = remember { mutableStateListOf<AiStyle>().apply { addAll(AiStyles.load(settings)) } }
     var editingStyle by remember { mutableStateOf<String?>(null) }
     var aiTest by remember { mutableStateOf<String?>(null) }
+    var modelMenu by remember { mutableStateOf(false) }
+    // --- počítadlo / účetnictví ---
+    var statsVersion by remember { mutableIntStateOf(0) }
+    var confirmResetPrints by remember { mutableStateOf(false) }
+    var reportUrl by remember { mutableStateOf(settings.reportUrl) }
+    var reportToken by remember { mutableStateOf(settings.reportToken) }
+    var deviceName by remember { mutableStateOf(settings.deviceName) }
+    var reportTest by remember { mutableStateOf<String?>(null) }
     var previewRotation by remember { mutableIntStateOf(settings.previewRotation) }
     var logoChoice by remember { mutableStateOf(settings.logoChoice) }
     var printerModel by remember { mutableStateOf(settings.printerModel) }
@@ -255,6 +266,7 @@ fun AdminScreen(
     var latest by remember { mutableStateOf<Updater.Release?>(null) }
     // --- ostatní ---
     var pending by remember { mutableStateOf<Int?>(null) }
+    var reportPending by remember { mutableStateOf<Int?>(null) }
     var confirmRemoveOwner by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var logText by remember { mutableStateOf("") }
@@ -270,6 +282,11 @@ fun AdminScreen(
         pending = withContext(Dispatchers.IO) {
             runCatching {
                 WorkManager.getInstance(context).getWorkInfosByTag(SendPhotoWorker.TAG).get().count { !it.state.isFinished }
+            }.getOrNull()
+        }
+        reportPending = withContext(Dispatchers.IO) {
+            runCatching {
+                WorkManager.getInstance(context).getWorkInfosByTag(ReportWorker.TAG).get().count { !it.state.isFinished }
             }.getOrNull()
         }
         // Tichá kontrola, jestli je na GitHubu novější verze
@@ -328,6 +345,9 @@ fun AdminScreen(
         settings.galleryEnabled = galleryOn
         settings.galleryRequirePin = galleryRequirePin
         settings.aiEnabled = aiOn
+        settings.reportUrl = reportUrl.trim()
+        settings.reportToken = reportToken.trim()
+        settings.deviceName = deviceName.trim().ifBlank { "Fotokiosek" }
         settings.geminiApiKey = apiKey.trim()
         settings.geminiModel = aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL }
         settings.aiMaxTries = aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3
@@ -388,16 +408,19 @@ fun AdminScreen(
             Text("Správa fotokiosku", fontSize = 34.sp, fontWeight = FontWeight.Bold)
             Text(
                 buildString {
+                    if (statsVersion < 0) return@buildString // čte stav → po vynulování počítadla se text překreslí
                     append("Verze: ${Updater.currentName}\n")
                     append("Správce zařízení (zamčený kiosek): ${if (isOwner) "ano" else "NE"}\n")
                     append("${camera.statusLine}\n")
                     append("Ve frontě k odeslání: ${pending ?: "?"}   Odesláno celkem: ${settings.sentCount}   Vytištěno: ${settings.printCount}")
+                    if ((reportPending ?: 0) > 0) append("\nNeodeslané záznamy do účetnictví: $reportPending")
                     if (settings.lastError.isNotEmpty()) append("\nPoslední chyba: ${settings.lastError}")
                     if (settings.pin == "1234") append("\n⚠ PIN je pořád výchozí 1234 – změň ho níže v sekci Kiosek (Změna PINu).")
                 },
                 fontSize = 18.sp,
                 modifier = Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
             )
+            OutlinedButton(onClick = { confirmResetPrints = true }) { Text("Vynulovat počítadlo vytištěných fotek") }
 
             // ---------------------------------------------------------------- Kamera
             Section("Kamera")
@@ -596,15 +619,33 @@ fun AdminScreen(
                 Text("⚠ Bez API klíče se AI nespustí – zákazník uvidí běžnou fotku.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
             }
             SecretField("Gemini API klíč", apiKey) { apiKey = it.trim(); aiTest = null }
-            Field("Model", aiModel) { aiModel = it; aiTest = null }
-            Text(
-                "Výchozí ${GeminiClient.DEFAULT_MODEL} (stabilní, ~0,10 \$ za fotku). Levnější novější: gemini-nano-banana-2.1 (~0,05 \$). " +
-                    "Název jde přepsat, když Google vydá nový model.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
+            Text("Model", fontSize = 20.sp)
+            Box {
+                OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.weight(1f)) {
+                        Text(aiModel.ifBlank { GeminiClient.DEFAULT_MODEL }, fontSize = 20.sp)
+                        GeminiClient.MODELS.firstOrNull { it.id == aiModel.trim() }?.let {
+                            Text(it.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                        } ?: Text("vlastní název modelu", fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                    }
+                    Text("▾", fontSize = 26.sp)
+                }
+                DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                    GeminiClient.MODELS.forEach { m ->
+                        DropdownMenuItem(
+                            text = {
+                                Column(Modifier.padding(vertical = 6.dp)) {
+                                    Text(m.id, fontSize = 20.sp, fontWeight = if (m.id == aiModel.trim()) FontWeight.Bold else FontWeight.Normal)
+                                    Text(m.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.65f))
+                                }
+                            },
+                            onClick = { aiModel = m.id; modelMenu = false; aiTest = null },
+                        )
+                    }
+                }
+            }
+            Field("Nebo napiš název modelu ručně (když Google vydá nový)", aiModel) { aiModel = it; aiTest = null }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { aiModel = GeminiClient.DEFAULT_MODEL; aiTest = null }) { Text("Výchozí model") }
                 Button(onClick = {
                     aiTest = "Zkouším spojení…"
                     val key = apiKey
@@ -947,6 +988,31 @@ fun AdminScreen(
                 }
             }
 
+            // ---------------------------------------------------------------- Účetnictví
+            Section("Účetnictví (web)")
+            Text(
+                "Každý tisk (a každá AI úprava) se pošle do tvého webového účetnictví – tam je přehled po dnech a účtenky. " +
+                    "Bez internetu se hlášení pošle později. Prázdná adresa = nehlásit.",
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = 0.6f),
+            )
+            Field("Adresa API (https://…/api.php)", reportUrl) { reportUrl = it.trim(); reportTest = null }
+            SecretField("Token automatu (z účetnictví → Nastavení → Automaty)", reportToken) { reportToken = it.trim(); reportTest = null }
+            Field("Jméno automatu v účetnictví", deviceName) { deviceName = it.take(40) }
+            if (reportUrl.startsWith("http://", ignoreCase = true)) {
+                Text("⚠ Adresa bez https – token by šel sítí nešifrovaně.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
+            }
+            Button(onClick = {
+                reportTest = "Zkouším spojení…"
+                val url = reportUrl
+                val token = reportToken
+                scope.launch {
+                    val (ok, msg) = withContext(Dispatchers.IO) { ReportWorker.test(url, token) }
+                    reportTest = (if (ok) "✔ " else "✘ ") + msg
+                }
+            }) { Text("Otestovat spojení s účetnictvím") }
+            reportTest?.let { Text(it, fontSize = 18.sp) }
+
             // ---------------------------------------------------------------- Aktualizace
             Section("Aktualizace")
             Text("Nainstalovaná verze: ${Updater.currentName}", fontSize = 18.sp)
@@ -1010,6 +1076,23 @@ fun AdminScreen(
             }
         }
     }
+    }
+
+    if (confirmResetPrints) {
+        AlertDialog(
+            onDismissRequest = { confirmResetPrints = false },
+            title = { Text("Vynulovat počítadlo?") },
+            text = { Text("Počítadlo vytištěných fotek v automatu (teď ${settings.printCount}) se nastaví na 0. Záznamy ve webovém účetnictví zůstanou.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    AppLog.i("Správa", "Počítadlo tisku vynulováno (bylo ${settings.printCount})")
+                    settings.printCount = 0
+                    statsVersion++
+                    confirmResetPrints = false
+                }) { Text("Vynulovat") }
+            },
+            dismissButton = { TextButton(onClick = { confirmResetPrints = false }) { Text("Zrušit") } },
+        )
     }
 
     if (confirmRemoveOwner) {

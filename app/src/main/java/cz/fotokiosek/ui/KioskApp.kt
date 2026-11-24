@@ -80,6 +80,7 @@ import cz.fotokiosek.PhotoStore
 import cz.fotokiosek.PrintLayout
 import cz.fotokiosek.PrintMedia
 import cz.fotokiosek.RateLimit
+import cz.fotokiosek.ReportWorker
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.SelphyUsb
 import cz.fotokiosek.SystemPrint
@@ -139,6 +140,9 @@ fun KioskApp(
     var aiRaw by remember { mutableStateOf<Bitmap?>(null) }
     var aiLast by remember { mutableStateOf<Bitmap?>(null) }
     var aiTries by remember { mutableIntStateOf(0) }
+    /** Název AI stylu poslední AI fotky a fotky právě na obrazovce (null = původní) – pro účetnictví. */
+    var aiLastStyle by remember { mutableStateOf<String?>(null) }
+    var shownStyle by remember { mutableStateOf<String?>(null) }
     val flash = remember { Animatable(0f) }
 
     fun goIdle() {
@@ -151,6 +155,8 @@ fun KioskApp(
         aiRaw = null
         aiLast = null
         aiTries = 0
+        aiLastStyle = null
+        shownStyle = null
     }
 
     /** E-mailová verze (celá fotka s logem) a tisková verze (ořez na papír + logo; jen při zapnutém tisku). */
@@ -203,12 +209,13 @@ fun KioskApp(
     }
 
     /** Hotová fotka (původní nebo z AI) → logo, tisková verze → obrazovka s tiskem a e-mailem. */
-    fun showResult(photo: Bitmap) {
+    fun showResult(photo: Bitmap, style: String? = null) {
         val from = screen
         scope.launch {
             val (mail, print) = prepare(photo)
             if (screen !== from) return@launch // mezitím jinam (nečinnost, dvojí klepnutí)
             printPhoto = print
+            shownStyle = style
             screen = Screen.Review(mail)
         }
     }
@@ -235,14 +242,21 @@ fun KioskApp(
             }
             if (screen !== working) {
                 // Zrušeno – zaplacený výsledek ale nezahodit, když zákazník pořád vybírá styl k téže fotce.
-                if (aiRaw === raw) result.getOrNull()?.let { aiLast = it; saveToGallery(it) }
+                if (aiRaw === raw) result.getOrNull()?.let {
+                    aiLast = it
+                    aiLastStyle = style.name
+                    saveToGallery(it)
+                    ReportWorker.ai(context, settings, style.name)
+                }
                 return@launch
             }
             result.onSuccess { image ->
                 AppLog.i("AI", "Styl ${style.name} hotový")
                 aiLast = image
+                aiLastStyle = style.name
+                ReportWorker.ai(context, settings, style.name)
                 saveToGallery(image)
-                showResult(image)
+                showResult(image, style.name)
             }.onFailure { e ->
                 if (e is CancellationException) throw e
                 val message = (e as? GeminiClient.AiException)?.message ?: "Neočekávaná chyba: ${AppLog.causes(e)}"
@@ -350,13 +364,19 @@ fun KioskApp(
 
     fun print(photo: Bitmap, copies: Int) {
         printFor = null
+        // Pro účetnictví zachytit hned – výsledek tisku přijde později, kdy už může být jiná obrazovka.
+        val reportSource = if (fromGallery) "galerie" else "foto"
+        val reportStyle = shownStyle
         val job = "Fotokiosek ${System.currentTimeMillis() / 1000}"
         // Vždy 10×15 cm při 300 DPI, bez okrajů (rozměr podle modelu tiskárny).
         val media = PrintMedia.forSettings(settings)
         if (settings.printMode == "system") {
             // Na některých deskách tiskový systém Androidu chybí – chyba nesmí shodit kiosek.
             runCatching { (context as? Activity)?.let { SystemPrint.print(it, PrintLayout.fit(photo, media), copies, job, media) } }
-                .onSuccess { settings.printCount += copies }
+                .onSuccess {
+                    settings.printCount += copies
+                    ReportWorker.print(context, settings, copies, reportSource, reportStyle)
+                }
                 .onFailure { e ->
                     AppLog.e("Tisk", "Systémový tisk nejde spustit", e)
                     settings.lastError = "Tisk: ${e.message}"
@@ -386,6 +406,7 @@ fun KioskApp(
             printing = false
             if (result.ok) {
                 settings.printCount += copies
+                ReportWorker.print(context, settings, copies, reportSource, reportStyle)
                 notice = Notice("Fotka se tiskne, vyzvedni si ji u tiskárny.", error = false)
             } else {
                 settings.lastError = "Tisk: ${result.message}"
@@ -475,7 +496,7 @@ fun KioskApp(
                     lastResult = aiLast,
                     onPick = { pickAiStyle(s.raw, it) },
                     onOriginal = { showResult(s.raw) },
-                    onLastResult = { aiLast?.let { showResult(it) } },
+                    onLastResult = { aiLast?.let { showResult(it, aiLastStyle) } },
                 )
                 is Screen.AiWorking -> AiWorkingScreen(s.style, onCancel = { screen = Screen.AiPick(s.raw) })
                 is Screen.AiFailed -> AiFailedScreen(
@@ -483,7 +504,7 @@ fun KioskApp(
                     canTryAgain = aiTriesLeft() > 0,
                     onOriginal = { showResult(s.raw) },
                     onOtherStyle = { screen = Screen.AiPick(s.raw) },
-                    onLastResult = aiLast?.let { last -> { showResult(last) } },
+                    onLastResult = aiLast?.let { last -> { showResult(last, aiLastStyle) } },
                 )
                 Screen.Gallery -> GalleryScreen(settings.keepDays, onOpen = { openFromGallery(it) }, onClose = { goIdle() })
                 Screen.Admin -> AdminScreen(

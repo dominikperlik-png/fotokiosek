@@ -28,6 +28,18 @@ import kotlin.math.roundToInt
  */
 object GeminiClient {
     const val DEFAULT_MODEL = "gemini-3.1-flash-image"
+
+    /** Model s popisem pro výběr v menu správce. */
+    class Model(val id: String, val note: String)
+
+    /** Obrazové modely podle dokumentace Google (listopad 2026). Název jde v menu i přepsat ručně. */
+    val MODELS = listOf(
+        Model(DEFAULT_MODEL, "Nano Banana 2 · stabilní, doporučený · ~0,10 \$ za fotku (2K)"),
+        Model("gemini-nano-banana-2.1", "Nano Banana 2.1 · nejnovější, Google ho doporučuje · ~0,05 \$ za fotku (2K)"),
+        Model("gemini-3.1-flash-lite-image", "Nano Banana 2 Lite · nejlevnější (~0,03 \$) · nižší kvalita, jen 1K"),
+        Model("gemini-3-pro-image", "Nano Banana Pro · nejvyšší kvalita, pomalejší · ~0,13 \$ za fotku"),
+        Model("gemini-2.5-flash-image", "Nano Banana (starší) · Google ho vypne 15. 3. 2027 · ~0,04 \$"),
+    )
     private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/"
     private const val TAG = "AI"
 

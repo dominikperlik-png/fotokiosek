@@ -103,6 +103,14 @@ class KioskSettings(context: Context) {
     /** Seznam stylů jako JSON (viz AiStyles); prázdné = výchozí styly. */
     var aiStyles by string("ai_styles", "")
 
+    // --- Webové účetnictví (složka web/) ---
+    /** Adresa API účetnictví, např. https://muj-server.cz/fotokiosek/api.php. Prázdné = nehlásit. */
+    var reportUrl by string("report_url", "")
+    /** Token automatu z účetnictví (Nastavení → Automaty). */
+    var reportToken by string("report_token", "")
+    /** Jméno automatu v účetnictví (víc automatů na jednom účtu). */
+    var deviceName by string("device_name", "Fotokiosek")
+
     init {
         boolKeys += "gallery_enabled"
         // Migrace: dřív galerii zapínal nastavený PIN galerie – zapsat jednou, ať pozdější zrušení PINu galerii nevypne.

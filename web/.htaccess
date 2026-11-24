@@ -1,0 +1,8 @@
+# Apache: databáze, pomocné soubory a nastavení nejsou z webu dostupné.
+Options -Indexes
+<FilesMatch "^(config\.php|config\.example\.php|README\.md)$">
+    Require all denied
+</FilesMatch>
+RedirectMatch 403 ^.*/(data|inc)/
+# Některé servery (PHP-FPM/CGI) jinak zahodí hlavičku Authorization s tokenem automatu.
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

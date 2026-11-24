@@ -22,6 +22,7 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 | `.github/workflows/release.yml` | CI: build `assembleRelease` + `gh release create vNNN fotokiosek.apk` |
 | `keystore.properties`, `fotokiosek-release.jks`, `github-secrets.txt` | Podpisový klíč – jen lokálně u uživatele + GitHub secrets, **nikdy do Gitu** |
 | `README.md` | Přehled pro GitHub |
+| `web/` | Webové účetnictví (PHP 8.1+ a SQLite, běží na serveru majitele): `api.php` příjem událostí z `ReportWorker`, přehled po dnech, účtenky (80 mm), nastavení ceny/prodávajícího/automatů (tokeny jen jako SHA-256), přihlášení (první účet jen s `SETUP_CODE` z `config.php`), CSRF, `data/` s databází mimo web. Nasazení: `web/README.md`. |
 | `diagnostika.txt`, `zaloha/` | Vznikají při instalaci (v .gitignore) |
 
 ## Build
@@ -59,6 +60,7 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 | `GeminiClient.kt` | AI úprava fotky přes Gemini API, čisté `HttpURLConnection` (Android 7 OK). `stylize()`: fotka zmenšená na 1024 px JPEG → `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`, hlavička `x-goog-api-key`, tělo `contents[].parts` = text + `inline_data` (image/jpeg base64), `generationConfig.responseModalities=["IMAGE"]`, `imageConfig.aspectRatio` (nejbližší podporovaný poměr) + `imageSize="2K"`; výsledek z `candidates[0].content.parts[].inlineData` (bez `thought`). Timeout 120 s. Chyby → `AiException` s českou zprávou (klíč, oprávnění/účtování, model, 429 limit, 5xx, blokace `promptFeedback.blockReason` / `finishReason` *SAFETY/PROHIBITED*, bez internetu, TLS). `test()` = `GET …/models/{model}` (nic neplatí, kontroluje `supportedGenerationMethods`). Výchozí model `gemini-3.1-flash-image` (Nano Banana 2, Stable); alternativa `gemini-nano-banana-2.1`. Klíč se neloguje. |
 | `AiStyles.kt` | `AiStyle(id, name, icon, prompt, enabled, builtin)`, 10 výchozích stylů (anglické prompty bez názvů značek), uložení JSON v `ai_styles` (prázdné = výchozí), `fullPrompt()` = `PRESERVE` (zachovat obličeje, výrazy, věk, počet lidí, pózu, kompozici; měnit jen styl, oblečení, pozadí; žádný text/loga) + prompt stylu. |
 | `ui/AiScreens.kt` | `AiPickScreen` (mřížka karet + „Bez úpravy“ + „Poslední AI fotka“, počet zbývajících pokusů, upozornění na Google AI), `AiWorkingScreen` (točící se oblouk, „AI připravuje tvoji fotku…“, Zrušit), `AiFailedScreen` (hláška + Jiný styl / Původní fotka). |
+| `ReportWorker.kt` | Webové účetnictví (`web/`): každý tisk (`print`, kopie, zdroj foto/galerie, AI styl) a každá povedená AI úprava (`ai`) jako událost s UUID → WorkManager (bez síťové podmínky, exponenciální backoff, max 500 pokusů) → `POST report_url` JSON s `Authorization: Bearer report_token`. 2xx = hotovo, 400/422 = zahodit, jinak znovu. `test()` = událost `ping`. Údaje pro tisk se zachytí na začátku `print()` (výsledek přijde později). |
 | `LogoStore.kt` | Výběr loga `logo_choice`: none / custom / **přibalená loga** `builtin:satisfactory|watt|allin` (`res/drawable-nodpi/logo_*.png`, zdroj: složka `Loga` u uživatele – jen lokálně). `load(context)` podle volby (logo pro fotky a úvodní obrazovku, UI ho načítá na pozadí), `thumbnail()` = zmenšené náhledy pro admin s vlastní mezipamětí (načítat mimo hlavní vlákno), `select()`. Vlastní logo jako PNG v `filesDir/branding/logo.png` (přežije aktualizaci). Import z Uri (PNG/JPG/WEBP/SVG přes AndroidSVG), z `externalFiles/logo.*` (instalace), `applyToPhoto()` (roh `logo_position`, `logo_size` %). `version` = Compose state pro překreslení. |
 | `Updater.kt` | GitHub API `releases/latest` → asset `.apk` → stažení (ruční redirecty, token jen na GitHub) → kontrola balíčku → `PackageInstaller` session (`USER_ACTION_NOT_REQUIRED`). `UpdateReceiver`: výsledek instalace + `MY_PACKAGE_REPLACED` → spustí MainActivity. |
 | `EmailCheck.kt` | Validace e-mailu, opravy překlepů domén. `RateLimit`: max **5 fotek na adresu za hodinu**. |
@@ -92,7 +94,7 @@ Pomocné komponenty: `ChoiceRow` (čipy), `Section`, `SwitchRow`, `Field`.
 
 Resources: `strings.xml` (jen `app_name`), `themes.xml` (`Theme.Material.NoActionBar.Fullscreen`, černé pozadí), `drawable/ic_launcher.xml`, `xml/device_admin.xml` (prázdné policies).
 
-Manifest: oprávnění CAMERA, INTERNET, ACCESS_NETWORK_STATE; `camera.any` není povinná; MainActivity je LAUNCHER **i HOME** (singleTask), `allowBackup=false`, `largeHeap=true`, **`usesCleartextTraffic=true`** (IPP na tiskárny jde přes http://, Android 9+ by ho jinak blokoval).
+Manifest: oprávnění CAMERA, INTERNET, ACCESS_NETWORK_STATE; `camera.any` není povinná; MainActivity je LAUNCHER **i HOME** (singleTask), `allowBackup=false`, `largeHeap=true`, **`usesCleartextTraffic=true`** + `networkSecurityConfig` (`res/xml/network_security_config.xml`: cleartext povolený, důvěra = systémové certifikáty + přibalený `res/raw/isrg_root_x1.pem` – Let's Encrypt pro webové účetnictví na Androidu 7.0) (IPP na tiskárny jde přes http://, Android 9+ by ho jinak blokoval).
 Systémový tisk **nepouští** lock task – `com.android.printspooler` je v allowlistu (`Kiosk.setup`), zákazník se tak nedostane z kiosku.
 
 ## Nastavení (klíče v config.properties = klíče v SharedPreferences)
@@ -102,6 +104,7 @@ Kamera: `camera_source` (auto|android|canon), `camera_id` (prázdné = auto, USB
 Tisk: `print_enabled` (false), `print_mode` (ipp|selphy_usb|system), `printer_url`, `printer_name`, `print_max_copies` (5), `printer_model` (selphy_cp1500|dnp_qw410|generic).
 Logo: `logo_choice` (custom), `logo_on_screen`, `logo_on_photo` (true), `logo_position` (TL|TC|TR|BL|BC|BR, BR), `logo_size` (18 %). Soubor loga ≠ nastavení (LogoStore).
 AI: `ai_enabled` (false), `gemini_api_key`, `gemini_model` (gemini-3.1-flash-image), `ai_max_tries` (3), `ai_styles` (JSON, upravuje se v adminu).
+Účetnictví: `report_url` (prázdné = nehlásit), `report_token`, `device_name` (Fotokiosek).
 Aktualizace: `github_repo` (dominikperlik-png/fotokiosek), `github_token` (jen soukromé repo).
 Interní: `sent_count`, `print_count`, `last_error`.
 Když přidáváš nové nastavení: delegát v `KioskSettings`, položka v `AdminScreen` (state + `save()`), řádek v `config.example.properties` a zmínka v `POSTUP.html`.

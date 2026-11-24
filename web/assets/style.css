@@ -1,0 +1,60 @@
+/* Fotokiosek – účetnictví. Tmavé barvy jako aplikace v automatu, akcent #FFB300. */
+:root { --bg: #141414; --card: #1f1f1f; --line: #333; --text: #eee; --muted: #9a9a9a; --accent: #FFB300; --err: #ff6e6e; --ok: #81c784; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+a { color: var(--accent); }
+h1 { margin: 8px 0 20px; }
+h2 { margin: 0 0 12px; font-size: 1.2rem; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 20px; background: #000; border-bottom: 2px solid var(--accent); flex-wrap: wrap; }
+.top nav { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; margin-bottom: 20px; }
+.card.narrow { max-width: 420px; margin: 60px auto; }
+.muted { color: var(--muted); }
+.error { color: var(--err); font-weight: 600; }
+.ok { color: var(--ok); font-weight: 600; }
+label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: .95rem; color: var(--muted); }
+input, textarea { font: inherit; padding: 9px 11px; border-radius: 8px; border: 1px solid #444; background: #111; color: var(--text); }
+button { font: inherit; padding: 9px 16px; border-radius: 8px; border: 1px solid #555; background: #2c2c2c; color: var(--text); cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+button.link { background: none; border: none; padding: 0; color: var(--accent); text-decoration: underline; }
+button.danger { color: var(--err); }
+form.inline { display: inline; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.filters label { margin: 0; }
+.quick { display: flex; gap: 14px; margin-left: auto; padding-bottom: 8px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; align-items: end; }
+.grid .wide { grid-column: 1 / -1; }
+.grid button { justify-self: start; margin-bottom: 12px; }
+.row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+.row label { flex: 1; min-width: 240px; margin: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.stat { background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--accent); border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; }
+.stat .num { font-size: 2rem; font-weight: 800; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+.r { text-align: right; }
+code { background: #000; padding: 2px 6px; border-radius: 6px; word-break: break-all; }
+code.big { font-size: 1.1rem; color: var(--accent); }
+.token { border: 2px dashed var(--accent); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
+.actions { display: flex; gap: 20px; align-items: center; margin-bottom: 20px; }
+
+/* Účtenka: na obrazovce jako papírek, při tisku 80 mm široká (jde i na A4). */
+.receipt { background: #fff; color: #000; width: 80mm; max-width: 100%; margin: 0 auto; padding: 6mm 5mm; font: 13px/1.45 "Courier New", monospace; }
+.receipt h2 { font-size: 15px; margin: 10px 0 6px; text-align: center; }
+.receipt header { text-align: center; }
+.receipt table { font-size: 12px; }
+.receipt th, .receipt td { border-color: #ccc; padding: 2px 0; color: #000; }
+.receipt hr { border: 0; border-top: 1px dashed #000; }
+.receipt .line { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
+.receipt .total { font-size: 16px; font-weight: 700; }
+.receipt .note { text-align: center; margin-top: 12px; }
+
+@media print {
+  body { background: #fff; color: #000; }
+  main { padding: 0; max-width: none; }
+  .no-print, .top { display: none !important; }
+  .receipt { margin: 0; }
+  @page { margin: 4mm; }
+}
