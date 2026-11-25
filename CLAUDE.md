@@ -22,7 +22,7 @@ Součástí je skryté **menu správce** (admin) a instalační skript pro Windo
 | `.github/workflows/release.yml` | CI: build `assembleRelease` + `gh release create vNNN fotokiosek.apk` |
 | `keystore.properties`, `fotokiosek-release.jks`, `github-secrets.txt` | Podpisový klíč – jen lokálně u uživatele + GitHub secrets, **nikdy do Gitu** |
 | `README.md` | Přehled pro GitHub |
-| `web/` | Webové účetnictví (PHP 8.1+ a SQLite, běží na serveru majitele): `api.php` příjem událostí z `ReportWorker`, přehled po dnech, účtenky (80 mm), nastavení ceny/prodávajícího/automatů (tokeny jen jako SHA-256), přihlášení (první účet jen s `SETUP_CODE` z `config.php`), CSRF, `data/` s databází mimo web. Nasazení: `web/README.md`. |
+| `web/` | Webové účetnictví (PHP 8.1+ a SQLite, běží na serveru majitele): `api.php` příjem událostí z `ReportWorker`, přehled po dnech, účtenky (80 mm), nastavení ceny/prodávajícího/automatů (tokeny jen jako SHA-256), uživatelé s rolemi `admin` / `viewer` (`users.php`, změna hesla odhlásí jiná zařízení přes `password_changed`), přihlášení (první účet jen s `SETUP_CODE` z `config.php`), CSRF, `data/` s databází mimo web. Nasazení: `web/README.md`. |
 | `diagnostika.txt`, `zaloha/` | Vznikají při instalaci (v .gitignore) |
 
 ## Build

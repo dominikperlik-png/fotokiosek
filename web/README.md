@@ -30,6 +30,7 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
      počítá pro všechny dohromady.
 4. Otevři `https://tvuj-server.cz/fotokiosek/login.php`, zadej instalační kód a založ si účet (jméno + heslo, aspoň 10 znaků).
 5. **Nastavení** → vyplň cenu za fotku a údaje na účtenku → **Přidat automat** → ukáže se adresa API a token.
+   Další lidi přidáš v **Uživatelé** (jméno, role, heslo) – jméno a heslo jim pak pošli, heslo si změní v Nastavení.
 6. V automatu: menu správce → **Účetnictví (web)** → vlož adresu API a token → **Otestovat spojení s účetnictvím** → Uložit.
 7. Vyfoť a vytiskni fotku – za chvíli se objeví v Přehledu.
 
@@ -40,7 +41,8 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 | `login.php`, `logout.php` | Přihlášení (první spuštění = založení účtu s instalačním kódem), max. 10 špatných pokusů / 15 min z jedné IP. |
 | `index.php` | Přehled: filtr období, součty, tabulka po dnech, všechny záznamy, vystavení účtenky. |
 | `receipts.php`, `receipt.php` | Seznam účtenek, vystavení (číslo `rok-pořadí`), tisk (80 mm, jde i na A4). Účtenka si pamatuje údaje z doby vystavení. |
-| `settings.php` | Cena, měna, údaje prodávajícího, automaty a jejich tokeny (uložené jen jako SHA-256), změna hesla. |
+| `settings.php` | Cena, měna, údaje prodávajícího, automaty a jejich tokeny (uložené jen jako SHA-256) – jen správce; změna vlastního hesla – všichni. |
+| `users.php` | Uživatelé (jen správce): přidat, role, nové heslo, smazat. Role **Správce** = vše, **Přehled a účtenky** = přehled + vystavení a tisk účtenek. Sebe ani posledního správce smazat nejde; nové heslo odhlásí uživatele na všech zařízeních. |
 | `inc/bootstrap.php` | Databáze (tabulky se vytvoří samy), session, CSRF, pomocné funkce. |
 | `data/` | Databáze `fotokiosek.sqlite` – **zálohuj ji** (stačí zkopírovat soubor). |
 

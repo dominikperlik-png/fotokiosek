@@ -106,7 +106,20 @@ function migrate(PDO $pdo): void
     if (!in_array('price', $cols, true)) {
         $pdo->exec('ALTER TABLE events ADD COLUMN price REAL');
     }
+    // Uživatelé: role (admin = vše, viewer = přehled a účtenky), poslední přihlášení, změna hesla (odhlásí jiná zařízení).
+    $ucols = array_column($pdo->query('PRAGMA table_info(users)')->fetchAll(), 'name');
+    if (!in_array('role', $ucols, true)) {
+        $pdo->exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+    }
+    if (!in_array('last_login', $ucols, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN last_login INTEGER');
+    }
+    if (!in_array('password_changed', $ucols, true)) {
+        $pdo->exec('ALTER TABLE users ADD COLUMN password_changed INTEGER NOT NULL DEFAULT 0');
+    }
 }
+
+const ROLES = ['admin' => 'Správce', 'viewer' => 'Přehled a účtenky'];
 
 // ---------------------------------------------------------------- nastavení
 
@@ -176,9 +189,51 @@ function current_user(): ?array
         return null;
     }
     $_SESSION['seen'] = time();
-    $st = db()->prepare('SELECT id, username FROM users WHERE id = ?');
+    $st = db()->prepare('SELECT id, username, role, password_changed FROM users WHERE id = ?');
     $st->execute([$_SESSION['uid']]);
-    return $st->fetch() ?: null;
+    $user = $st->fetch();
+    // Smazaný uživatel nebo změněné heslo (po přihlášení na tomhle zařízení) = odhlásit.
+    if (!$user || (int)$user['password_changed'] > (int)($_SESSION['login_at'] ?? 0)) {
+        logout();
+        return null;
+    }
+    return $user;
+}
+
+function is_admin(array $user): bool
+{
+    return ($user['role'] ?? '') === 'admin';
+}
+
+/** Jen pro správce – ostatním stránka „nemáš oprávnění“. */
+function require_admin(): array
+{
+    $user = require_login();
+    if (!is_admin($user)) {
+        http_response_code(403);
+        page_header('Bez oprávnění', $user);
+        echo '<section class="card"><h1>Bez oprávnění</h1><p class="muted">Tohle může dělat jen správce. <a href="index.php">Zpět na přehled</a></p></section>';
+        page_footer();
+        exit;
+    }
+    return $user;
+}
+
+/** Ověření nového hesla; vrací chybovou hlášku nebo null. */
+function password_problem(string $password, string $again): ?string
+{
+    if (strlen($password) < 10) {
+        return 'Heslo musí mít aspoň 10 znaků.';
+    }
+    if ($password !== $again) {
+        return 'Hesla se neshodují.';
+    }
+    return null;
+}
+
+function valid_username(string $name): bool
+{
+    return (bool)preg_match('/^[\p{L}0-9._@-]{3,40}$/u', $name);
 }
 
 function require_login(): array
@@ -197,6 +252,8 @@ function login_user(int $uid): void
     session_regenerate_id(true);
     $_SESSION['uid'] = $uid;
     $_SESSION['seen'] = time();
+    $_SESSION['login_at'] = time();
+    db()->prepare('UPDATE users SET last_login = ? WHERE id = ?')->execute([time(), $uid]);
 }
 
 function logout(): void
@@ -334,7 +391,12 @@ function page_header(string $title, ?array $user = null): void
             $current = 'receipts.php';
         }
         echo '<header class="top no-print"><span class="brand"><span class="dot"></span>Fotokiosek</span><nav>';
-        foreach (['index.php' => 'Přehled', 'receipts.php' => 'Účtenky', 'settings.php' => 'Nastavení'] as $href => $label) {
+        $items = ['index.php' => 'Přehled', 'receipts.php' => 'Účtenky'];
+        if (is_admin($user)) {
+            $items['users.php'] = 'Uživatelé';
+        }
+        $items['settings.php'] = 'Nastavení';
+        foreach ($items as $href => $label) {
             echo '<a href="' . $href . '"' . ($current === $href ? ' aria-current="page"' : '') . '>' . $label . '</a>';
         }
         echo '</nav><form method="post" action="logout.php" class="logout">' . csrf_field()

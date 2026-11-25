@@ -22,14 +22,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (!hash_equals((string)SETUP_CODE, $code)) {
             login_failed($ip);
             $error = 'Špatný instalační kód.';
-        } elseif (!preg_match('/^[\p{L}0-9._@-]{3,40}$/u', $username)) {
+        } elseif (!valid_username($username)) {
             $error = 'Jméno: 3–40 znaků (písmena, čísla, . _ @ -).';
         } elseif (strlen($password) < 10) {
             $error = 'Heslo musí mít aspoň 10 znaků.';
         } elseif ($password !== $password2) {
             $error = 'Hesla se neshodují.';
         } else {
-            db()->prepare('INSERT INTO users(username, password_hash, created_at) VALUES(?, ?, ?)')
+            db()->prepare("INSERT INTO users(username, password_hash, created_at, role) VALUES(?, ?, ?, 'admin')")
                 ->execute([$username, password_hash($password, PASSWORD_DEFAULT), time()]);
             login_user((int)db()->lastInsertId());
             header('Location: settings.php?welcome=1');

@@ -12,6 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
     $action = (string)($_POST['action'] ?? '');
 
+    if (in_array($action, ['billing', 'add_device', 'revoke_device'], true) && !is_admin($user)) {
+        http_response_code(403);
+        exit('Jen pro správce.');
+    }
     if ($action === 'billing') {
         $price = parse_price(post_str('price'));
         if ($price === null || $price < 0 || $price > 100000) {
@@ -40,18 +44,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st = db()->prepare('SELECT password_hash FROM users WHERE id = ?');
         $st->execute([$user['id']]);
         $hash = (string)$st->fetchColumn();
-        $old = (string)($_POST['old'] ?? '');
-        $new = (string)($_POST['new'] ?? '');
+        $old = post_str('old');
+        $new = post_str('new');
         if (!password_verify($old, $hash)) {
             $err = 'Současné heslo nesedí.';
-        } elseif (strlen($new) < 10) {
-            $err = 'Nové heslo musí mít aspoň 10 znaků.';
-        } elseif ($new !== (string)($_POST['new2'] ?? '')) {
-            $err = 'Nová hesla se neshodují.';
+        } elseif (($problem = password_problem($new, post_str('new2'))) !== null) {
+            $err = $problem;
         } else {
-            db()->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([password_hash($new, PASSWORD_DEFAULT), $user['id']]);
+            // Změna hesla odhlásí ostatní zařízení; tohle zůstane přihlášené.
+            db()->prepare('UPDATE users SET password_hash = ?, password_changed = ? WHERE id = ?')
+                ->execute([password_hash($new, PASSWORD_DEFAULT), time(), $user['id']]);
             login_user((int)$user['id']);
-            $msg = 'Heslo změněno.';
+            $_SESSION['login_at'] = time() + 1;
+            $msg = 'Heslo změněno. Ostatní zařízení s tímhle účtem se odhlásila.';
         }
     }
 }
@@ -67,6 +72,7 @@ page_header('Nastavení', $user);
 <?php if ($msg !== ''): ?><p class="ok"><?= h($msg) ?></p><?php endif; ?>
 <?php if ($err !== ''): ?><p class="error"><?= h($err) ?></p><?php endif; ?>
 
+<?php if (is_admin($user)): ?>
 <section class="card">
     <h2>Cena a údaje na účtenku</h2>
     <form method="post" class="grid">
@@ -121,8 +127,11 @@ page_header('Nastavení', $user);
     </form>
 </section>
 
+<?php endif; ?>
+
 <section class="card">
     <h2>Změna hesla</h2>
+    <p class="muted">Přihlášen jako <strong><?= h($user['username']) ?></strong> (<?= h(ROLES[$user['role']] ?? $user['role']) ?>).</p>
     <form method="post" class="grid">
         <?= csrf_field() ?><input type="hidden" name="action" value="password">
         <label>Současné heslo <input type="password" name="old" required autocomplete="current-password"></label>
