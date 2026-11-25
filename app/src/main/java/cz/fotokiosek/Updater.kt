@@ -43,6 +43,13 @@ object Updater {
         if (!Regex("^[\\w.-]+/[\\w.-]+$").matches(repo)) throw IllegalStateException("Neplatný repozitář „$repo“ (má být vlastník/název)")
         val conn = open("https://api.github.com/repos/$repo/releases/latest", settings.githubToken, "application/vnd.github+json")
         val code = conn.responseCode
+        // API má limit 60 dotazů/h na jedno připojení (všechna zařízení za stejným routerem dohromady).
+        // Veřejný repozitář: náhradní cesta přes obyčejný stahovací odkaz, ten limit nemá.
+        if ((code == 403 || code == 429) && settings.githubToken.isBlank()) {
+            conn.disconnect()
+            AppLog.w(TAG, "GitHub API odmítlo dotaz (HTTP $code, nejspíš limit) – zkouším přímý odkaz na vydání")
+            return latestViaDownloadLink(repo)
+        }
         if (code == 404) throw IllegalStateException("Na GitHubu zatím není žádné vydání (nebo je repozitář soukromý a chybí token).")
         if (code == 401 || code == 403) throw IllegalStateException("GitHub odmítl přístup (HTTP $code). Zkontroluj token, případně limit požadavků.")
         if (code != 200) throw IllegalStateException("GitHub vrátil HTTP $code")
@@ -65,6 +72,28 @@ object Updater {
         if (apkUrl.isEmpty()) throw IllegalStateException("Vydání $tag neobsahuje APK.")
         val versionCode = Regex("\\d+").find(tag)?.value?.toIntOrNull() ?: 0
         return Release(versionCode, tag, json.optString("name", tag), json.optString("body"), apkUrl, apiUrl, size)
+    }
+
+    /**
+     * Náhradní zjištění poslední verze bez API: `…/releases/latest/download/fotokiosek.apk` přesměruje
+     * na `…/releases/download/vNNN/fotokiosek.apk` – z adresy je číslo verze, soubor se pak stáhne z ní.
+     */
+    private fun latestViaDownloadLink(repo: String): Release {
+        val conn = open("https://github.com/$repo/releases/latest/download/fotokiosek.apk", "", "application/octet-stream")
+        conn.instanceFollowRedirects = false
+        val code = conn.responseCode
+        val location = conn.getHeaderField("Location")
+        conn.disconnect()
+        if (code == 404) throw IllegalStateException("Poslední vydání na GitHubu neobsahuje fotokiosek.apk (HTTP 404).")
+        if (code !in 300..399 || location == null) {
+            throw IllegalStateException("GitHub teď odmítá dotazy (nejspíš limit požadavků) a náhradní odkaz vrátil HTTP $code. Zkus to za hodinu.")
+        }
+        val url = URL(URL("https://github.com/"), location).toString()
+        val tag = Regex("/releases/download/([^/]+)/").find(url)?.groupValues?.get(1)
+            ?: throw IllegalStateException("Z odkazu na vydání nejde zjistit verzi.")
+        val versionCode = Regex("\\d+").find(tag)?.value?.toIntOrNull() ?: 0
+        AppLog.i(TAG, "Poslední vydání podle přímého odkazu: $tag")
+        return Release(versionCode, tag, "Fotokiosek 1.$versionCode", "", url, "", 0)
     }
 
     /** Stáhne APK (sleduje přesměrování na úložiště GitHubu bez přeposílání tokenu). */
