@@ -33,7 +33,7 @@ page_header('Účtenka ' . $r['number'], $user);
     </header>
     <h2>Účtenka č. <?= h($r['number']) ?></h2>
     <p>Vystaveno: <?= h(fmt_time((int)$r['created_at'])) ?><br>
-       Období: <?= h(fmt_date((int)$r['period_from'])) ?> – <?= h(fmt_date((int)$r['period_to'])) ?></p>
+       Období: <?= h(fmt_period((int)$r['period_from'], (int)$r['period_to'])) ?></p>
     <table>
         <thead><tr><th>Den</th><th class="r">Fotek</th></tr></thead>
         <tbody>

@@ -367,6 +367,54 @@ function client_ip(): string
     return $ip;
 }
 
+/** Čas z formuláře (HH:MM) → „HH:MM“; neplatný → $default. */
+function parse_clock(mixed $value, string $default): string
+{
+    if (is_string($value) && preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $value)) {
+        return $value;
+    }
+    return $default;
+}
+
+/**
+ * Období z formuláře: from + from_time, to + to_time (výchozí celé dny 00:00–23:59).
+ * Vrací from (začátek), end (konec – výhradně, minuta „do“ se ještě počítá) a hodnoty pro formulář.
+ */
+function parse_range(array $src, int $defaultFrom, int $defaultTo): array
+{
+    $fromDay = parse_day($src['from'] ?? null, $defaultFrom);
+    $toDay = parse_day($src['to'] ?? null, $defaultTo);
+    $fromTime = parse_clock($src['from_time'] ?? null, '00:00');
+    $toTime = parse_clock($src['to_time'] ?? null, '23:59');
+    $from = strtotime(date('Y-m-d', $fromDay) . ' ' . $fromTime);
+    $last = strtotime(date('Y-m-d', $toDay) . ' ' . $toTime);
+    if ($last < $from) {
+        [$from, $last] = [$last, $from];
+    }
+    return [
+        'from' => $from,
+        'end' => $last + 60,
+        'last' => $last,
+        'from_day' => date('Y-m-d', $from),
+        'from_time' => date('H:i', $from),
+        'to_day' => date('Y-m-d', $last),
+        'to_time' => date('H:i', $last),
+    ];
+}
+
+/** Období čitelně: celé dny jen data, jinak i časy. */
+function fmt_period(int $from, int $last): string
+{
+    $wholeDays = date('H:i', $from) === '00:00' && in_array(date('H:i', $last), ['00:00', '23:59'], true);
+    if ($wholeDays) {
+        return date('Y-m-d', $from) === date('Y-m-d', $last) ? fmt_date($from) : fmt_date($from) . ' – ' . fmt_date($last);
+    }
+    if (date('Y-m-d', $from) === date('Y-m-d', $last)) {
+        return fmt_date($from) . ' ' . date('H:i', $from) . ' – ' . date('H:i', $last);
+    }
+    return fmt_time($from) . ' – ' . fmt_time($last);
+}
+
 function token_hash(string $token): string
 {
     return hash('sha256', $token);

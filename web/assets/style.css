@@ -131,7 +131,10 @@ form.inline { display: inline; }
 
 /* ---------- filtr období ---------- */
 .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-.filters label { margin: 0; flex: 1; min-width: 140px; }
+.filters label { margin: 0; flex: 1; min-width: 240px; }
+.dt { display: flex; gap: 8px; }
+.dt input[type="date"] { flex: 1.7; min-width: 0; }
+.dt input[type="time"] { flex: 1; min-width: 0; }
 .quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; background: var(--fill); border-radius: 10px; width: 100%; }
 .quick a { text-align: center; padding: 6px 10px; border-radius: 8px; font-size: 14px; font-weight: 500; color: var(--text); white-space: nowrap; }
 .quick a:hover { text-decoration: none; background: var(--card); }

@@ -4,12 +4,9 @@ declare(strict_types=1);
 require __DIR__ . '/inc/bootstrap.php';
 $user = require_login();
 
-$from = parse_day($_GET['from'] ?? null, strtotime(date('Y-m-01')));
-$to = parse_day($_GET['to'] ?? null, strtotime(date('Y-m-d')));
-if ($to < $from) {
-    [$from, $to] = [$to, $from];
-}
-$toEnd = strtotime('+1 day', $to); // konec dne „do“
+$range = parse_range($_GET, strtotime(date('Y-m-01')), strtotime(date('Y-m-d')));
+$from = $range['from'];
+$toEnd = $range['end'];
 
 $st = db()->prepare(
     'SELECT e.*, d.name AS device_name FROM events e JOIN devices d ON d.id = e.device_id
@@ -51,8 +48,18 @@ page_header('Přehled', $user);
 <h1>Přehled</h1>
 
 <form method="get" class="card filters no-print">
-    <label>Od <input type="date" name="from" value="<?= h(date('Y-m-d', $from)) ?>"></label>
-    <label>Do <input type="date" name="to" value="<?= h(date('Y-m-d', $to)) ?>"></label>
+    <label>Od
+        <span class="dt">
+            <input type="date" name="from" value="<?= h($range['from_day']) ?>" aria-label="Datum od">
+            <input type="time" name="from_time" value="<?= h($range['from_time']) ?>" aria-label="Čas od">
+        </span>
+    </label>
+    <label>Do
+        <span class="dt">
+            <input type="date" name="to" value="<?= h($range['to_day']) ?>" aria-label="Datum do">
+            <input type="time" name="to_time" value="<?= h($range['to_time']) ?>" aria-label="Čas do">
+        </span>
+    </label>
     <button class="primary">Zobrazit</button>
     <span class="quick">
         <a href="?from=<?= h(date('Y-m-d')) ?>&amp;to=<?= h(date('Y-m-d')) ?>">Dnes</a>
@@ -70,12 +77,14 @@ page_header('Přehled', $user);
 </section>
 
 <section class="card no-print">
-    <h2>Účtenka za <?= $from === $to ? h(fmt_date($from)) : h(fmt_date($from)) . ' – ' . h(fmt_date($to)) ?></h2>
+    <h2>Účtenka za <?= h(fmt_period($range['from'], $range['last'])) ?></h2>
     <?php if ($copies > 0): ?>
         <form method="post" action="receipts.php" class="receipt-cta">
             <?= csrf_field() ?>
-            <input type="hidden" name="from" value="<?= h(date('Y-m-d', $from)) ?>">
-            <input type="hidden" name="to" value="<?= h(date('Y-m-d', $to)) ?>">
+            <input type="hidden" name="from" value="<?= h($range['from_day']) ?>">
+            <input type="hidden" name="from_time" value="<?= h($range['from_time']) ?>">
+            <input type="hidden" name="to" value="<?= h($range['to_day']) ?>">
+            <input type="hidden" name="to_time" value="<?= h($range['to_time']) ?>">
             <input type="hidden" name="nonce" value="<?= h(bin2hex(random_bytes(16))) ?>">
             <p><span class="muted"><?= $copies ?> fotek</span><br><span class="sum"><?= h(money($revenue)) ?></span></p>
             <button class="primary">Vystavit a vytisknout účtenku</button>

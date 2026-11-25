@@ -6,12 +6,9 @@ $user = require_login();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
-    $from = parse_day($_POST['from'] ?? null, strtotime(date('Y-m-d')));
-    $to = parse_day($_POST['to'] ?? null, $from);
-    if ($to < $from) {
-        [$from, $to] = [$to, $from];
-    }
-    $toEnd = strtotime('+1 day', $to);
+    $range = parse_range($_POST, strtotime(date('Y-m-d')), strtotime(date('Y-m-d')));
+    $from = $range['from'];
+    $toEnd = $range['end'];
 
     // Stejný formulář podruhé (dvojklik, obnovení stránky) → už vystavená účtenka, ne nová.
     $nonce = post_str('nonce');
@@ -36,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $total += (int)$e['copies'] * $p;
     }
     if ($copies === 0) {
-        header('Location: index.php?from=' . date('Y-m-d', $from) . '&to=' . date('Y-m-d', $to));
+        header('Location: index.php?' . http_build_query(['from' => $range['from_day'], 'from_time' => $range['from_time'], 'to' => $range['to_day'], 'to_time' => $range['to_time']]));
         exit;
     }
     ksort($days);
@@ -66,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare(
             'INSERT INTO receipts(number, created_at, period_from, period_to, copies, unit_price, total, snapshot)
              VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
-        )->execute([$number, time(), $from, $to, $copies, $price, $total, json_encode($snapshot, JSON_UNESCAPED_UNICODE)]);
+        )->execute([$number, time(), $from, $range['last'], $copies, $price, $total, json_encode($snapshot, JSON_UNESCAPED_UNICODE)]);
         $id = (int)$pdo->lastInsertId();
         $pdo->exec('COMMIT');
     } catch (Throwable $e) {
@@ -96,7 +93,7 @@ page_header('Účtenky', $user);
                 <tr>
                     <td class="head">Účtenka <?= h($r['number']) ?></td>
                     <td data-label="Vystaveno"><?= h(fmt_time((int)$r['created_at'])) ?></td>
-                    <td data-label="Období"><?= h(fmt_date((int)$r['period_from'])) ?> – <?= h(fmt_date((int)$r['period_to'])) ?></td>
+                    <td data-label="Období"><?= h(fmt_period((int)$r['period_from'], (int)$r['period_to'])) ?></td>
                     <td class="r" data-label="Fotek"><?= (int)$r['copies'] ?></td>
                     <td class="r" data-label="Celkem"><strong><?= h(number_format((float)$r['total'], 2, ',', ' ') . ' ' . ($snap['currency'] ?? '')) ?></strong></td>
                     <td class="r" data-label=""><a href="receipt.php?id=<?= (int)$r['id'] ?>">Zobrazit a tisknout ›</a></td>
