@@ -7,6 +7,7 @@ $user = require_login();
 $msg = '';
 $err = '';
 $newToken = null;
+$newDeviceName = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
@@ -33,9 +34,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $err = 'Zadej jméno automatu.';
         } else {
             $newToken = bin2hex(random_bytes(24)); // 48 znaků
+            $newDeviceName = $name;
             db()->prepare('INSERT INTO devices(name, token_hash, created_at) VALUES(?, ?, ?)')
                 ->execute([$name, token_hash($newToken), time()]);
-            $msg = 'Automat přidán. Token je vidět jen teď – zkopíruj ho do automatu.';
+            $msg = 'Automat přidán – načti jeho QR kód v automatu (níže). Token i QR kód jsou vidět jen teď.';
         }
     } elseif ($action === 'revoke_device') {
         db()->prepare('UPDATE devices SET revoked = 1 WHERE id = ?')->execute([(int)($_POST['id'] ?? 0)]);
@@ -62,6 +64,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $devices = db()->query('SELECT * FROM devices ORDER BY revoked, id')->fetchAll();
+/** Obsah QR pro automat; jméno se zkrátí nebo vynechá, aby se kód vešel (max. 213 bajtů – generátor umí verzi 10). */
+function report_qr_payload(string $url, string $token, string $name): string
+{
+    $base = 'fotokiosek:report?u=' . rawurlencode($url) . '&t=' . $token;
+    $name = clip($name, 40); // automat si stejně nechá max. 40 znaků
+    while ($name !== '') {
+        $payload = $base . '&n=' . rawurlencode($name);
+        if (strlen($payload) <= 213) {
+            return $payload;
+        }
+        $len = function_exists('mb_strlen') ? mb_strlen($name) : strlen($name);
+        $name = clip($name, max(0, $len - 1));
+    }
+    return $base;
+}
+
 $apiUrl = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') ? 'https' : 'http')
     . '://' . ($_SERVER['HTTP_HOST'] ?? 'tvuj-server') . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/api.php';
 
@@ -93,10 +111,20 @@ page_header('Nastavení', $user);
     <h2>Automaty</h2>
     <?php if ($newToken !== null): ?>
         <div class="token">
-            <p>Do automatu zadej (menu správce → <strong>Účetnictví (web)</strong>):</p>
-            <p>Adresa API: <code><?= h($apiUrl) ?></code></p>
-            <p>Token: <code class="big"><?= h($newToken) ?></code></p>
-            <p class="muted">Token se už znovu neukáže. Když ho ztratíš, zruš ho a přidej automat znovu.</p>
+            <div class="qr-box">
+                <div class="qr" data-qr="<?= h(report_qr_payload($apiUrl, $newToken, $newDeviceName)) ?>"></div>
+                <div>
+                    <p><strong>Načti QR kód automatem:</strong> menu správce → <strong>Účetnictví (web)</strong> → <em>📷 Načíst adresu a token z QR kódu</em>
+                        a podrž telefon nebo monitor s tímhle kódem před kamerou. Vyplní se adresa, token i jméno automatu.</p>
+                    <p class="muted">Nebo ručně:</p>
+                    <p>Adresa API: <code><?= h($apiUrl) ?></code></p>
+                    <p>Token: <code class="big"><?= h($newToken) ?></code></p>
+                </div>
+            </div>
+            <?php if (str_starts_with($apiUrl, 'http://')): ?>
+                <p class="error">Pozor: adresa je bez https – token by šel sítí nešifrovaně. Otevři účetnictví přes https:// a přidej automat znovu.</p>
+            <?php endif; ?>
+            <p class="muted">Token ani QR kód se už znovu neukážou. Když ho ztratíš, zruš token a přidej automat znovu.</p>
         </div>
     <?php endif; ?>
     <?php if ($devices): ?>
@@ -127,6 +155,18 @@ page_header('Nastavení', $user);
     </form>
 </section>
 
+<section class="card">
+    <h2>QR kód pro Gemini API klíč</h2>
+    <p class="muted">Vlož klíč z Google AI Studio a vytvoř QR kód. Vznikne jen tady v prohlížeči – klíč se nikam neposílá ani neukládá.
+        V automatu pak v <strong>AI &amp; API nastavení</strong> klepni na <em>📷 Načíst klíč z QR kódu</em>.</p>
+    <div class="row">
+        <label>Gemini API klíč <input type="password" id="gemini-key" autocomplete="off" spellcheck="false"></label>
+        <button type="button" id="gemini-qr-btn">Vytvořit QR kód</button>
+    </div>
+    <p class="error" id="gemini-qr-err" hidden></p>
+    <div class="qr" id="gemini-qr" hidden></div>
+</section>
+
 <?php endif; ?>
 
 <section class="card">
@@ -141,4 +181,6 @@ page_header('Nastavení', $user);
     </form>
 </section>
 <script src="assets/confirm.js"></script>
+<script src="assets/qr.js"></script>
+<script src="assets/qrtools.js"></script>
 <?php page_footer();

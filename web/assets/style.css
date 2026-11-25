@@ -217,3 +217,12 @@ tbody tr:hover td { background: rgba(127, 127, 127, 0.05); }
   .receipt { margin: 0; box-shadow: none; border-radius: 0; }
   @page { margin: 4mm; }
 }
+
+/* ---------- QR kódy ---------- */
+.qr { width: 240px; max-width: 100%; aspect-ratio: 1; background: #fff; border-radius: 12px; overflow: hidden; margin-top: 8px; }
+.qr svg { display: block; width: 100%; height: 100%; }
+.qr[hidden] { display: none; }
+.qr.qr-error { aspect-ratio: auto; padding: 16px; color: var(--danger); background: var(--err-bg); font-size: 15px; }
+.qr-box { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 8px; }
+.qr-box > div:last-child { flex: 1; min-width: 220px; }
+@media print { .qr { break-inside: avoid; } }

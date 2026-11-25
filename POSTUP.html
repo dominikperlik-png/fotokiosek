@@ -380,7 +380,7 @@ pin=4826</pre></div>
 <p>Se zapnutým AI režimem si zákazník po vyfocení vybere styl (komiks, 3D animák, cyberpunk, 90s retro, superhrdina, fantasy, herní plakát, astronaut, olejomalba, anime…). Fotka se pošle do Google AI (Gemini), za 10–40 s se ukáže upravená a dál jde jako běžná fotka – logo, tisk, e-mail, galerie. Na výsledku jsou i tlačítka <em>Zkusit jiný styl</em> a <em>Použít původní fotku</em>. Když AI selže (bez internetu, chyba služby), aplikace nespadne – nabídne původní fotku.</p>
 <ul class="check">
   <li><input type="checkbox" data-id="ai1"> V <strong>Google AI Studio</strong> (aistudio.google.com) si vytvoř API klíč a <strong>zapni placené účtování</strong> – generování obrázků zdarma není. Jedna AI fotka stojí zhruba 0,05–0,10 $.</li>
-  <li><input type="checkbox" data-id="ai2"> Menu správce → <strong>AI &amp; API nastavení</strong>: vlož klíč (očičko ho ukáže), model vyber z nabídky (výchozí je doporučený) a klepni na <strong>Otestovat API připojení</strong>. Má se ukázat ✔.</li>
+  <li><input type="checkbox" data-id="ai2"> Menu správce → <strong>AI &amp; API nastavení</strong>: klepni na <strong>📷 Načíst klíč z QR kódu</strong> (QR vytvoříš v účetnictví → Nastavení → „QR kód pro Gemini API klíč“, nebo jakoukoli aplikací na QR kódy), případně klíč vlož ručně (očičko ho ukáže), model vyber z nabídky (výchozí je doporučený) a klepni na <strong>Otestovat API připojení</strong>. Má se ukázat ✔.</li>
   <li><input type="checkbox" data-id="ai3"> Zapni <strong>AI FOTOKIOSEK</strong>, případně nastav <em>Max. AI pokusů na jednu fotku</em> (výchozí 3 – ať děti nenaklikají desítky placených pokusů), a dej <strong>Uložit</strong>.</li>
   <li><input type="checkbox" data-id="ai4"> Styly jdou zapínat a vypínat, upravit (název, ikona, prompt anglicky) nebo přidat vlastní – třeba speciální styl na konkrétní akci. Pokyn „zachovat obličeje, výrazy, počet lidí a pózu“ se ke každému stylu přidává sám.</li>
   <li><input type="checkbox" data-id="ai5"> Dej na automat cedulku, že fotky upravuje AI od Google (fotky zákazníků se na chvíli posílají mimo automat).</li>
@@ -390,7 +390,7 @@ pin=4826</pre></div>
 <p>Každý tisk (a každá AI úprava) se může posílat do tvého webového účetnictví – na serveru je přehled po dnech (datum, čas, počet fotek, tržba) a jde vystavit a vytisknout účtenku. Web je ve složce <code>web/</code> repozitáře, návod na nasazení je v <code>web/README.md</code>.</p>
 <ul class="check">
   <li><input type="checkbox" data-id="uc1"> V účetnictví: <strong>Nastavení → Přidat automat</strong> – ukáže se adresa API a token.</li>
-  <li><input type="checkbox" data-id="uc2"> V automatu: menu správce → <strong>Účetnictví (web)</strong> → vlož adresu a token → <strong>Otestovat spojení s účetnictvím</strong> → Uložit.</li>
+  <li><input type="checkbox" data-id="uc2"> V automatu: menu správce → <strong>Účetnictví (web)</strong> → <strong>📷 Načíst adresu a token z QR kódu</strong> a podrž před kamerou telefon nebo monitor s QR kódem z účetnictví (nebo vlož adresu a token ručně) → <strong>Otestovat spojení s účetnictvím</strong> → Uložit.</li>
   <li><input type="checkbox" data-id="uc3"> Bez internetu se záznamy pošlou později samy. Počítadlo „Vytištěno“ v menu správce jde vynulovat tlačítkem pod stavovým rámečkem – záznamy na webu zůstanou.</li>
 </ul>
 

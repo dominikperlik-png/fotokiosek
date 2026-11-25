@@ -81,6 +81,7 @@ import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
 import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
+import cz.fotokiosek.QrScan
 import cz.fotokiosek.ReportWorker
 import cz.fotokiosek.SendPhotoWorker
 import cz.fotokiosek.Updater
@@ -224,6 +225,8 @@ fun AdminScreen(
     var reportToken by remember { mutableStateOf(settings.reportToken) }
     var deviceName by remember { mutableStateOf(settings.deviceName) }
     var reportTest by remember { mutableStateOf<String?>(null) }
+    /** Otevřená čtečka QR: "gemini" nebo "report", jinak null. */
+    var qrFor by remember { mutableStateOf<String?>(null) }
     var previewRotation by remember { mutableIntStateOf(settings.previewRotation) }
     var logoChoice by remember { mutableStateOf(settings.logoChoice) }
     var printerModel by remember { mutableStateOf(settings.printerModel) }
@@ -619,6 +622,7 @@ fun AdminScreen(
                 Text("⚠ Bez API klíče se AI nespustí – zákazník uvidí běžnou fotku.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
             }
             SecretField("Gemini API klíč", apiKey) { apiKey = it.trim(); aiTest = null }
+            OutlinedButton(onClick = { qrFor = "gemini" }) { Text("📷 Načíst klíč z QR kódu") }
             Text("Model", fontSize = 20.sp)
             Box {
                 OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.fillMaxWidth()) {
@@ -998,6 +1002,7 @@ fun AdminScreen(
             )
             Field("Adresa API (https://…/api.php)", reportUrl) { reportUrl = it.trim(); reportTest = null }
             SecretField("Token automatu (z účetnictví → Nastavení → Automaty)", reportToken) { reportToken = it.trim(); reportTest = null }
+            OutlinedButton(onClick = { qrFor = "report" }) { Text("📷 Načíst adresu a token z QR kódu") }
             Field("Jméno automatu v účetnictví", deviceName) { deviceName = it.take(40) }
             if (reportUrl.startsWith("http://", ignoreCase = true)) {
                 Text("⚠ Adresa bez https – token by šel sítí nešifrovaně.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
@@ -1076,6 +1081,47 @@ fun AdminScreen(
             }
         }
     }
+    }
+
+    qrFor?.let { target ->
+        QrScanDialog(
+            camera = camera,
+            title = if (target == "gemini") "Načti QR kód s API klíčem" else "Načti QR kód z účetnictví",
+            hint = if (target == "gemini") "Účetnictví → Nastavení → „QR kód pro Gemini API klíč“. Podrž telefon nebo monitor s kódem před kamerou automatu."
+            else "Účetnictví → Nastavení → Přidat automat. Podrž telefon nebo monitor s kódem před kamerou automatu.",
+            onCancel = { qrFor = null },
+            onResult = { raw ->
+                qrFor = null
+                when (val data = QrScan.parse(raw)) {
+                    is QrScan.Data.Report -> {
+                        reportUrl = data.url
+                        reportToken = data.token
+                        data.name?.let { deviceName = it.take(40) }
+                        reportTest = "✔ Načteno z QR kódu – adresa a token vyplněné. Dej „Otestovat spojení“ a pak Uložit."
+                        if (target == "gemini") aiTest = "QR kód byl z účetnictví – vyplnil jsem ho do sekce Účetnictví (web)."
+                    }
+                    is QrScan.Data.Gemini -> {
+                        apiKey = data.key
+                        aiTest = "✔ Klíč načten z QR kódu. Dej „Otestovat API připojení“ a pak Uložit."
+                        if (target == "report") reportTest = "QR kód byl Gemini klíč – vyplnil jsem ho do AI & API nastavení."
+                    }
+                    is QrScan.Data.Text -> when {
+                        target == "gemini" && QrScan.looksLikeKey(data.text) -> {
+                            apiKey = data.text
+                            aiTest = "✔ Klíč načten z QR kódu. Dej „Otestovat API připojení“ a pak Uložit."
+                        }
+                        target == "report" && QrScan.looksLikeKey(data.text) -> {
+                            reportToken = data.text
+                            reportTest = "✔ Token načten z QR kódu (adresu doplň ručně)."
+                        }
+                        else -> {
+                            val msg = "✘ Tenhle QR kód neobsahuje klíč ani token."
+                            if (target == "gemini") aiTest = msg else reportTest = msg
+                        }
+                    }
+                }
+            },
+        )
     }
 
     if (confirmResetPrints) {

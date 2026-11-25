@@ -31,7 +31,7 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 4. Otevři `https://tvuj-server.cz/fotokiosek/login.php`, zadej instalační kód a založ si účet (jméno + heslo, aspoň 10 znaků).
 5. **Nastavení** → vyplň cenu za fotku a údaje na účtenku → **Přidat automat** → ukáže se adresa API a token.
    Další lidi přidáš v **Uživatelé** (jméno, role, heslo) – jméno a heslo jim pak pošli, heslo si změní v Nastavení.
-6. V automatu: menu správce → **Účetnictví (web)** → vlož adresu API a token → **Otestovat spojení s účetnictvím** → Uložit.
+6. V automatu: menu správce → **Účetnictví (web)** → **📷 Načíst adresu a token z QR kódu** (QR kód ukáže účetnictví po přidání automatu) → **Otestovat spojení s účetnictvím** → Uložit.
 7. Vyfoť a vytiskni fotku – za chvíli se objeví v Přehledu.
 
 ## Co je kde

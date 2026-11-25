@@ -116,4 +116,9 @@ dependencies {
 
     // Logo ve formátu SVG
     implementation("com.caverock:androidsvg-aar:1.4")
+
+    // Čtení QR kódů (API klíč, token účetnictví) z kamery automatu – čistá Java, funguje i na Androidu 5
+    implementation("com.google.zxing:core:3.5.3")
+
+    testImplementation("junit:junit:4.13.2")
 }
