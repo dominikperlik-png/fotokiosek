@@ -72,6 +72,6 @@ object QrScan {
         }
     }
 
-    /** Vypadá jako API klíč / token (jen písmena, čísla, - a _, rozumná délka). */
-    fun looksLikeKey(text: String) = Regex("^[A-Za-z0-9_\\-]{20,128}$").matches(text)
+    /** Vypadá jako API klíč / token: bez mezer, rozumná délka (klíče Google mají různý tvar, např. AIza… i AQ.…). */
+    fun looksLikeKey(text: String) = Regex("^\\S{20,300}$").matches(text)
 }

@@ -8,9 +8,10 @@
   btn.addEventListener('click', function () {
     var key = input.value.trim();
     err.hidden = true;
-    if (!/^[A-Za-z0-9_\-]{20,100}$/.test(key)) {
+    // Klíče Google mají různý tvar (AIza…, novější i s tečkou AQ.…) – jen délka a žádné mezery.
+    if (!/^\S{20,300}$/.test(key)) {
       box.hidden = true;
-      err.textContent = 'Tohle nevypadá jako API klíč – zkopíruj ho celý z Google AI Studio.';
+      err.textContent = 'Klíč je moc krátký nebo obsahuje mezery – zkopíruj ho celý z Google AI Studio.';
       err.hidden = false;
       return;
     }

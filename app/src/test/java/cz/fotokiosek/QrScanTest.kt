@@ -71,6 +71,11 @@ class QrScanTest {
         assertEquals(QrScan.Data.Text("AIzaSyD-plainKEY0123456789abcdefgh"), plain)
         assertTrue(QrScan.looksLikeKey((plain as QrScan.Data.Text).text))
         assertEquals(QrScan.Data.Text("fotokiosek:report?u=&t="), QrScan.parse("fotokiosek:report?u=&t="))
+        // Novější tvar klíče Google s tečkou a další znaky (z webu zakódované přes encodeURIComponent).
+        assertEquals(QrScan.Data.Gemini("AQ.Ab8RN6x_y-z+1/2="), QrScan.parse("fotokiosek:gemini?k=AQ.Ab8RN6x_y-z%2B1%2F2%3D"))
+        assertTrue(QrScan.looksLikeKey("AQ.Ab8RN6LbV0aBcDeFgHiJkLmNoPq"))
+        assertTrue(!QrScan.looksLikeKey("kratky"))
+        assertTrue(!QrScan.looksLikeKey("dva slova jsou tady mezera mezi"))
     }
 
     @Test
