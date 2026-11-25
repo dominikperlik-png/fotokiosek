@@ -21,8 +21,8 @@ $m = static fn(float $v): string => number_format($v, 2, ',', ' ') . ' ' . $cur;
 page_header('Účtenka ' . $r['number'], $user);
 ?>
 <div class="no-print actions">
-    <button class="primary" id="print-btn">🖨 Vytisknout</button>
-    <a href="receipts.php">Zpět na účtenky</a>
+    <a href="receipts.php">‹ Účtenky</a>
+    <button class="primary" id="print-btn">Vytisknout</button>
 </div>
 <article class="receipt"<?= isset($_GET['print']) ? ' data-autoprint="1"' : '' ?>>
     <header>

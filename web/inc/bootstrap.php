@@ -329,10 +329,17 @@ function page_header(string $title, ?array $user = null): void
     echo '<title>' . h($title) . ' · ' . h(APP_NAME) . '</title>';
     echo '<link rel="stylesheet" href="assets/style.css"></head><body>';
     if ($user !== null) {
-        echo '<header class="top no-print"><strong>📷 Fotokiosek</strong><nav>';
-        echo '<a href="index.php">Přehled</a><a href="receipts.php">Účtenky</a><a href="settings.php">Nastavení</a>';
-        echo '<form method="post" action="logout.php" class="inline">' . csrf_field() . '<button class="link">Odhlásit (' . h($user['username']) . ')</button></form>';
-        echo '</nav></header>';
+        $current = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+        if ($current === 'receipt.php') {
+            $current = 'receipts.php';
+        }
+        echo '<header class="top no-print"><span class="brand"><span class="dot"></span>Fotokiosek</span><nav>';
+        foreach (['index.php' => 'Přehled', 'receipts.php' => 'Účtenky', 'settings.php' => 'Nastavení'] as $href => $label) {
+            echo '<a href="' . $href . '"' . ($current === $href ? ' aria-current="page"' : '') . '>' . $label . '</a>';
+        }
+        echo '</nav><form method="post" action="logout.php" class="logout">' . csrf_field()
+            . '<button class="link" title="Přihlášen: ' . h($user['username']) . '">Odhlásit</button></form>';
+        echo '</header>';
     }
     echo '<main>';
 }

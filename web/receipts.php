@@ -89,21 +89,21 @@ page_header('Účtenky', $user);
     <?php if (!$receipts): ?>
         <p class="muted">Zatím žádné.</p>
     <?php else: ?>
-        <table>
+        <div class="table-wrap"><table class="stack">
             <thead><tr><th>Číslo</th><th>Vystaveno</th><th>Období</th><th class="r">Fotek</th><th class="r">Celkem</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($receipts as $r): $snap = json_decode($r['snapshot'], true) ?: []; ?>
                 <tr>
-                    <td><?= h($r['number']) ?></td>
-                    <td><?= h(fmt_time((int)$r['created_at'])) ?></td>
-                    <td><?= h(fmt_date((int)$r['period_from'])) ?> – <?= h(fmt_date((int)$r['period_to'])) ?></td>
-                    <td class="r"><?= (int)$r['copies'] ?></td>
-                    <td class="r"><?= h(number_format((float)$r['total'], 2, ',', ' ') . ' ' . ($snap['currency'] ?? '')) ?></td>
-                    <td><a href="receipt.php?id=<?= (int)$r['id'] ?>">Zobrazit / tisk</a></td>
+                    <td class="head">Účtenka <?= h($r['number']) ?></td>
+                    <td data-label="Vystaveno"><?= h(fmt_time((int)$r['created_at'])) ?></td>
+                    <td data-label="Období"><?= h(fmt_date((int)$r['period_from'])) ?> – <?= h(fmt_date((int)$r['period_to'])) ?></td>
+                    <td class="r" data-label="Fotek"><?= (int)$r['copies'] ?></td>
+                    <td class="r" data-label="Celkem"><strong><?= h(number_format((float)$r['total'], 2, ',', ' ') . ' ' . ($snap['currency'] ?? '')) ?></strong></td>
+                    <td class="r" data-label=""><a href="receipt.php?id=<?= (int)$r['id'] ?>">Zobrazit a tisknout ›</a></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
-        </table>
+        </table></div>
     <?php endif; ?>
 </section>
 <?php page_footer();

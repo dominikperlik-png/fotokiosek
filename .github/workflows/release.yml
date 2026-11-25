@@ -18,6 +18,7 @@ on:
       - '*.ps1'
       - '*.bat'
       - 'config.example.properties'
+      - 'web/**'          # webové účetnictví běží na serveru, ne v automatu
   workflow_dispatch:
 
 permissions:

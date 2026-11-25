@@ -94,16 +94,16 @@ page_header('Nastavení', $user);
         </div>
     <?php endif; ?>
     <?php if ($devices): ?>
-        <table>
+        <div class="table-wrap"><table class="stack">
             <thead><tr><th>Jméno</th><th>Přidán</th><th>Naposledy se ozval</th><th>Stav</th><th></th></tr></thead>
             <tbody>
             <?php foreach ($devices as $d): ?>
                 <tr>
-                    <td><?= h($d['name']) ?></td>
-                    <td><?= h(fmt_date((int)$d['created_at'])) ?></td>
-                    <td><?= $d['last_seen'] ? h(fmt_time((int)$d['last_seen'])) : '–' ?></td>
-                    <td><?= $d['revoked'] ? 'zrušen' : 'aktivní' ?></td>
-                    <td><?php if (!$d['revoked']): ?>
+                    <td class="head"><?= h($d['name']) ?></td>
+                    <td data-label="Přidán"><?= h(fmt_date((int)$d['created_at'])) ?></td>
+                    <td data-label="Naposledy se ozval"><?= $d['last_seen'] ? h(fmt_time((int)$d['last_seen'])) : '–' ?></td>
+                    <td data-label="Stav"><span class="badge <?= $d['revoked'] ? 'off' : 'ok' ?>"><?= $d['revoked'] ? 'zrušen' : 'aktivní' ?></span></td>
+                    <td class="r" data-label=""><?php if (!$d['revoked']): ?>
                         <form method="post" class="inline confirm" data-confirm="Opravdu zrušit token automatu <?= h($d['name']) ?>?">
                             <?= csrf_field() ?><input type="hidden" name="action" value="revoke_device"><input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
                             <button class="link danger">Zrušit token</button>
@@ -112,7 +112,7 @@ page_header('Nastavení', $user);
                 </tr>
             <?php endforeach; ?>
             </tbody>
-        </table>
+        </table></div>
     <?php endif; ?>
     <form method="post" class="row">
         <?= csrf_field() ?><input type="hidden" name="action" value="add_device">

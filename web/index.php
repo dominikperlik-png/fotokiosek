@@ -53,7 +53,7 @@ page_header('Přehled', $user);
 <form method="get" class="card filters no-print">
     <label>Od <input type="date" name="from" value="<?= h(date('Y-m-d', $from)) ?>"></label>
     <label>Do <input type="date" name="to" value="<?= h(date('Y-m-d', $to)) ?>"></label>
-    <button>Zobrazit</button>
+    <button class="primary">Zobrazit</button>
     <span class="quick">
         <a href="?from=<?= h(date('Y-m-d')) ?>&amp;to=<?= h(date('Y-m-d')) ?>">Dnes</a>
         <a href="?from=<?= h(date('Y-m-d', strtotime('-1 day'))) ?>&amp;to=<?= h(date('Y-m-d', strtotime('-1 day'))) ?>">Včera</a>
@@ -66,18 +66,18 @@ page_header('Přehled', $user);
     <div class="stat"><span class="num"><?= $copies ?></span><span>vytištěných fotek</span></div>
     <div class="stat"><span class="num"><?= $jobs ?></span><span>tiskových úloh</span></div>
     <div class="stat"><span class="num"><?= $ai ?></span><span>AI úprav</span></div>
-    <div class="stat"><span class="num"><?= h(money($revenue)) ?></span><span>tržba (<?= count($prices) > 1 ? 'víc cen' : h(money($prices ? (float)array_key_first($prices) : $price)) . ' / fotka' ?>)</span></div>
+    <div class="stat main"><span class="num"><?= h(money($revenue)) ?></span><span>tržba (<?= count($prices) > 1 ? 'víc cen' : h(money($prices ? (float)array_key_first($prices) : $price)) . ' / fotka' ?>)</span></div>
 </section>
 
 <section class="card no-print">
-    <h2>Účtenka za období <?= h(fmt_date($from)) ?> – <?= h(fmt_date($to)) ?></h2>
+    <h2>Účtenka za <?= $from === $to ? h(fmt_date($from)) : h(fmt_date($from)) . ' – ' . h(fmt_date($to)) ?></h2>
     <?php if ($copies > 0): ?>
-        <form method="post" action="receipts.php">
+        <form method="post" action="receipts.php" class="receipt-cta">
             <?= csrf_field() ?>
             <input type="hidden" name="from" value="<?= h(date('Y-m-d', $from)) ?>">
             <input type="hidden" name="to" value="<?= h(date('Y-m-d', $to)) ?>">
             <input type="hidden" name="nonce" value="<?= h(bin2hex(random_bytes(16))) ?>">
-            <p><?= $copies ?> fotek, celkem <strong><?= h(money($revenue)) ?></strong></p>
+            <p><span class="muted"><?= $copies ?> fotek</span><br><span class="sum"><?= h(money($revenue)) ?></span></p>
             <button class="primary">Vystavit a vytisknout účtenku</button>
         </form>
     <?php else: ?>
@@ -90,41 +90,41 @@ page_header('Přehled', $user);
     <?php if (!$days): ?>
         <p class="muted">Žádné záznamy. Zkontroluj, že má automat v menu správce vyplněné „Účetnictví (web)“.</p>
     <?php else: ?>
-        <table>
+        <div class="table-wrap"><table class="stack">
             <thead><tr><th>Den</th><th class="r">Fotek</th><th class="r">Úloh</th><th class="r">AI úprav</th><th class="r">Tržba</th></tr></thead>
             <tbody>
             <?php foreach ($days as $day => $d): ?>
                 <tr>
-                    <td><a href="?from=<?= h($day) ?>&amp;to=<?= h($day) ?>"><?= h(fmt_date(strtotime($day))) ?></a></td>
-                    <td class="r"><?= $d['copies'] ?></td>
-                    <td class="r"><?= $d['jobs'] ?></td>
-                    <td class="r"><?= $d['ai'] ?></td>
-                    <td class="r"><?= h(money($d['revenue'])) ?></td>
+                    <td class="head"><a href="?from=<?= h($day) ?>&amp;to=<?= h($day) ?>"><?= h(fmt_date(strtotime($day))) ?></a></td>
+                    <td class="r" data-label="Fotek"><?= $d['copies'] ?></td>
+                    <td class="r" data-label="Tiskových úloh"><?= $d['jobs'] ?></td>
+                    <td class="r" data-label="AI úprav"><?= $d['ai'] ?></td>
+                    <td class="r" data-label="Tržba"><?= h(money($d['revenue'])) ?></td>
                 </tr>
             <?php endforeach; ?>
             </tbody>
-        </table>
+        </table></div>
     <?php endif; ?>
 </section>
 
 <?php if ($events): ?>
 <section class="card">
     <h2>Všechny záznamy (<?= count($events) ?>)</h2>
-    <table>
+    <div class="table-wrap"><table class="stack">
         <thead><tr><th>Datum a čas</th><th>Automat</th><th>Co</th><th class="r">Kopií</th><th>Odkud</th><th>AI styl</th></tr></thead>
         <tbody>
         <?php foreach (array_slice($events, 0, 500) as $e): ?>
             <tr>
-                <td><?= h(fmt_time((int)$e['happened_at'])) ?></td>
-                <td><?= h($e['device_label'] !== '' ? $e['device_label'] : $e['device_name']) ?></td>
-                <td><?= $e['type'] === 'print' ? 'tisk' : 'AI úprava' ?></td>
-                <td class="r"><?= $e['type'] === 'print' ? (int)$e['copies'] : '' ?></td>
-                <td><?= h($sourceLabel[$e['source']] ?? $e['source']) ?></td>
-                <td><?= h($e['style']) ?></td>
+                <td class="head"><?= h(fmt_time((int)$e['happened_at'])) ?></td>
+                <td data-label="Automat"><?= h($e['device_label'] !== '' ? $e['device_label'] : $e['device_name']) ?></td>
+                <td data-label="Co"><span class="badge"><?= $e['type'] === 'print' ? 'tisk' : 'AI úprava' ?></span></td>
+                <td class="r" data-label="Kopií"><?= $e['type'] === 'print' ? (int)$e['copies'] : '' ?></td>
+                <td data-label="Odkud"><?= h($sourceLabel[$e['source']] ?? $e['source']) ?></td>
+                <td data-label="AI styl"><?= h($e['style']) ?></td>
             </tr>
         <?php endforeach; ?>
         </tbody>
-    </table>
+    </table></div>
     <?php if (count($events) > 500): ?><p class="muted">Zobrazeno prvních 500 – zkrať období.</p><?php endif; ?>
 </section>
 <?php endif; ?>
