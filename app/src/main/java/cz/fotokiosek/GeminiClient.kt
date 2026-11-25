@@ -29,24 +29,34 @@ import kotlin.math.roundToInt
 object GeminiClient {
     const val DEFAULT_MODEL = "gemini-3.1-flash-image"
 
-    /** Model s popisem pro výběr v menu správce. */
-    class Model(val id: String, val note: String)
+    /** Model s popisem pro výběr v menu správce a velikostí výstupu, kterou umí (null = parametr neposílat). */
+    class Model(val id: String, val note: String, val imageSize: String?)
 
     /** Obrazové modely podle dokumentace Google (listopad 2026). Název jde v menu i přepsat ručně. */
     val MODELS = listOf(
-        Model(DEFAULT_MODEL, "Nano Banana 2 · stabilní, doporučený · ~0,10 \$ za fotku (2K)"),
-        Model("gemini-nano-banana-2.1", "Nano Banana 2.1 · nejnovější, Google ho doporučuje · ~0,05 \$ za fotku (2K)"),
-        Model("gemini-3.1-flash-lite-image", "Nano Banana 2 Lite · nejlevnější (~0,03 \$) · nižší kvalita, jen 1K"),
-        Model("gemini-3-pro-image", "Nano Banana Pro · nejvyšší kvalita, pomalejší · ~0,13 \$ za fotku"),
-        Model("gemini-2.5-flash-image", "Nano Banana (starší) · Google ho vypne 15. 3. 2027 · ~0,04 \$"),
+        Model(DEFAULT_MODEL, "Nano Banana 2 · stabilní, doporučený · 2K · ~0,10 \$ za fotku", "2K"),
+        Model("gemini-nano-banana-2.1", "Nano Banana 2.1 · nejnovější, Google ho doporučuje · 2K · ~0,05 \$ za fotku", "2K"),
+        Model("gemini-3.1-flash-lite-image", "Nano Banana 2 Lite · nejlevnější · jen 1K (méně ostrý tisk) · ~0,03 \$", "1K"),
+        Model("gemini-3-pro-image", "Nano Banana Pro · nejvyšší kvalita, pomalejší · 2K · ~0,13 \$ za fotku", "2K"),
+        Model("gemini-2.5-flash-image", "Nano Banana (starší) · 1K · Google ho vypne 15. 3. 2027 · ~0,04 \$", null),
     )
     private const val BASE = "https://generativelanguage.googleapis.com/v1beta/models/"
     private const val TAG = "AI"
 
     /** Delší strana fotky posílané do AI (rychlejší přenos i generování). */
     private const val UPLOAD_MAX_SIDE = 1024
-    /** Výstup 2K – na tisk 10×15 (1748 px) stačí. */
-    private const val IMAGE_SIZE = "2K"
+    /**
+     * Velikost výstupu podle modelu: 2K (na tisk 10×15 = 1748 px stačí), kde to model umí, jinak 1K / nic.
+     * Neznámý (ručně zadaný) model: zkusí se 2K a když ho model odmítne, jede se bez velikosti.
+     */
+    fun imageSizeFor(model: String): String? {
+        val known = MODELS.firstOrNull { it.id == modelId(model) }
+        return if (known != null) known.imageSize else "2K"
+    }
+
+    /** Chyba „tenhle model takovou velikost neumí“ (Google píše „imageSize“ i „Image size 2K is not supported“). */
+    fun isImageSizeError(code: Int, body: String) =
+        code == 400 && listOf("imageSize", "image_size", "image size").any { body.contains(it, ignoreCase = true) }
     private val ASPECTS = listOf("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
 
     /** Chyba se srozumitelnou českou zprávou (pro zákazníka a pro „Poslední chybu“ v adminu). */
@@ -83,11 +93,12 @@ object GeminiClient {
         if (apiKey.isBlank()) throw AiException("AI není nastavená (chybí API klíč).")
         val jpeg = downscaledJpeg(photo)
         val aspect = nearestAspect(photo.width, photo.height)
-        val first = call(apiKey, model, jpeg, prompt, aspect, withSize = true)
-        // Starší modely neznají imageSize → jednou zkusit bez něj.
-        val (code, response) = if (first.first == 400 && first.second.contains("imageSize", ignoreCase = true)) {
-            AppLog.w(TAG, "Model nezná imageSize – zkouším bez něj")
-            call(apiKey, model, jpeg, prompt, aspect, withSize = false)
+        val size = imageSizeFor(model)
+        val first = call(apiKey, model, jpeg, prompt, aspect, size)
+        // Pojistka: model velikost odmítl (ručně zadaný / změnil se) → jednou bez ní (výchozí velikost modelu).
+        val (code, response) = if (size != null && isImageSizeError(first.first, first.second)) {
+            AppLog.w(TAG, "Model $model neumí velikost $size – zkouším bez ní")
+            call(apiKey, model, jpeg, prompt, aspect, null)
         } else first
         if (code != 200) {
             AppLog.e(TAG, "AI vrátila HTTP $code: ${response.take(500)}")
@@ -96,9 +107,9 @@ object GeminiClient {
         return parseImage(response)
     }
 
-    private fun call(apiKey: String, model: String, jpeg: ByteArray, prompt: String, aspect: String, withSize: Boolean): Pair<Int, String> {
+    private fun call(apiKey: String, model: String, jpeg: ByteArray, prompt: String, aspect: String, size: String?): Pair<Int, String> {
         val imageConfig = JSONObject().put("aspectRatio", aspect)
-        if (withSize) imageConfig.put("imageSize", IMAGE_SIZE)
+        if (size != null) imageConfig.put("imageSize", size)
         val body = JSONObject()
             .put(
                 "contents",
@@ -126,7 +137,7 @@ object GeminiClient {
             .toByteArray(Charsets.UTF_8)
 
         val started = System.currentTimeMillis()
-        AppLog.i(TAG, "Posílám fotku do AI: model $model, ${jpeg.size / 1024} kB, poměr $aspect")
+        AppLog.i(TAG, "Posílám fotku do AI: model $model, ${jpeg.size / 1024} kB, poměr $aspect, velikost ${size ?: "výchozí"}")
         return try {
             val conn = open(BASE + modelId(model) + ":generateContent", apiKey, timeoutMs = 120_000)
             conn.requestMethod = "POST"
