@@ -145,7 +145,12 @@ fun KioskApp(
     var shownStyle by remember { mutableStateOf<String?>(null) }
     val flash = remember { Animatable(0f) }
 
+    /** Uložení neuložených změn z otevřeného menu správce (nastavuje AdminScreen). */
+    var adminAutoSave by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     fun goIdle() {
+        // Menu správce zavřené nečinností: nejdřív uložit jeho neuložené změny (úvodní obrazovka už je má ukázat).
+        if (screen == Screen.Admin) adminAutoSave?.invoke()
         screen = Screen.Idle
         askPin = false
         printFor = null
@@ -511,6 +516,7 @@ fun KioskApp(
                     settings, camera, pickLogo,
                     onActivity = { lastTouch.longValue = SystemClock.elapsedRealtime() },
                     onClose = { goIdle() },
+                    setAutoSave = { adminAutoSave = it },
                 )
             }
 

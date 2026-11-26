@@ -132,6 +132,9 @@ class KioskSettings(context: Context) {
     var printCount by int("print_count", 0)
     var lastError by string("last_error", "")
 
+    /** Klíče, které prázdná hodnota v config.properties nepřepíše (token, klíč, heslo zůstanou). */
+    private val keepIfEmpty = setOf("report_url", "report_token", "gemini_api_key", "smtp_password", "github_token")
+
     /**
      * Načte /sdcard/Android/data/cz.fotokiosek/files/config.properties, pokud existuje,
      * a pak ho smaže (obsahuje heslo k e-mailu).
@@ -160,6 +163,8 @@ class KioskSettings(context: Context) {
                     if (value.length in 4..8 && value.all(Char::isDigit) && value != pinNow) editor.putString(key, value)
                     else if (value.isNotEmpty()) AppLog.w("Nastavení", "gallery_pin v config.properties je neplatný (4–8 číslic, jiný než pin) – ignoruji")
                 }
+                // Prázdný řádek (např. „report_token=“ ze vzoru) nesmí smazat už nastavený token, klíč ani heslo.
+                in keepIfEmpty -> if (value.isNotEmpty()) editor.putString(key, value)
                 in intKeys -> value.toIntOrNull()?.let { editor.putInt(key, it) }
                 in boolKeys -> editor.putBoolean(key, value.lowercase() in setOf("true", "1", "ano", "yes"))
                 else -> editor.putString(key, value)

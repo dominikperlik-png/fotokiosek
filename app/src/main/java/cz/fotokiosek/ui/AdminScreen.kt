@@ -182,11 +182,12 @@ fun AdminScreen(
     /** Psaní na systémové klávesnici není dotyk v aplikaci – hlásí se zvlášť, ať menu nezavře časovač nečinnosti. */
     onActivity: () -> Unit,
     onClose: () -> Unit,
+    /** Menu dá aplikaci funkci „ulož neuložené změny“ – zavolá se před zavřením kvůli nečinnosti (null = menu zavřené). */
+    setAutoSave: ((() -> Unit)?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val activity = context as Activity
     val scope = rememberCoroutineScope()
-    BackHandler(onBack = onClose)
 
     // --- kamera ---
     var cameraSource by remember { mutableStateOf(settings.cameraSource) }
@@ -301,6 +302,60 @@ fun AdminScreen(
         }
     }
 
+    /** Hodnoty, které by zapsalo Uložit (stejné výrazy jako v [save]) – podle nich se poznají neuložené změny. */
+    fun formValues(): List<Any?> = listOf(
+        cameraSource,
+        cameraId,
+        mirror,
+        fill,
+        canonRotation,
+        canonSaveToCard,
+        shutterLead.toIntOrNull()?.coerceIn(0, 900) ?: 250,
+        welcome,
+        countdown.toIntOrNull()?.coerceIn(0, 10) ?: 3,
+        idleTimeout.toIntOrNull()?.coerceIn(10, 600) ?: 45,
+        keepDays.toIntOrNull()?.coerceIn(1, 365) ?: 7,
+        previewRotation,
+        printerModel,
+        logoOnScreen,
+        logoOnPhoto,
+        logoPosition,
+        logoSize.toIntOrNull()?.coerceIn(5, 60) ?: 18,
+        printEnabled,
+        printMode,
+        IppClient.normalize(printerUrl),
+        printerName,
+        printMaxCopies.toIntOrNull()?.coerceIn(1, 20) ?: 5,
+        host.trim(),
+        port.toIntOrNull() ?: 465,
+        security,
+        user.trim(),
+        password,
+        trustAll,
+        fromAddress.trim(),
+        fromName,
+        replyTo.trim(),
+        subject,
+        body,
+        githubRepo.trim(),
+        githubToken.trim(),
+        galleryOn,
+        galleryRequirePin,
+        aiOn,
+        reportUrl.trim(),
+        reportToken.trim(),
+        deviceName.trim().ifBlank { "Fotokiosek" },
+        apiKey.trim(),
+        aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL },
+        aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3,
+        aiStylesOn, // bez filtru: seznam stylů se může během otevřeného menu změnit synchronizací
+    )
+    var savedValues by remember { mutableStateOf(formValues()) }
+    fun unsaved() = formValues() != savedValues
+    /** Zavřít → Zahodit: změny se neuloží ani při zavření menu. */
+    var discardChanges by remember { mutableStateOf(false) }
+    var askSaveOnClose by remember { mutableStateOf(false) }
+
     /** [explicit] = tlačítko Uložit (jen to smí při vypnutí galerie smazat její fotky). */
     fun save(explicit: Boolean = false) {
         settings.cameraSource = cameraSource
@@ -360,8 +415,29 @@ fun AdminScreen(
         // Jen styly, které existují (smazaný na webu se po případném návratu nezapne sám).
         settings.aiStylesOn = aiStylesOn.filter { id -> aiStyleList.any { it.id == id } }.toSet()
         camera.applySettings()
+        savedValues = formValues()
         AppLog.i("Správa", "Nastavení uloženo")
     }
+
+    // Menu se zavřelo jinak než Uložit / Zahodit (nečinnost 180 s…) → neuložené změny uložit, ať se neztratí třeba token.
+    // rememberUpdatedState: vždy aktuální verze (seznam stylů se mohl změnit synchronizací).
+    val autoSave by rememberUpdatedState {
+        if (!discardChanges && unsaved()) {
+            AppLog.i("Správa", "Menu zavřeno bez uložení – ukládám změny automaticky")
+            save()
+        }
+    }
+    DisposableEffect(Unit) {
+        setAutoSave { autoSave() }
+        onDispose {
+            setAutoSave(null)
+            autoSave()
+        }
+    }
+    fun requestClose() {
+        if (unsaved()) askSaveOnClose = true else onClose()
+    }
+    BackHandler(onBack = { requestClose() })
 
     fun testMail(send: Boolean) {
         save()
@@ -661,6 +737,7 @@ fun AdminScreen(
                     scope.launch {
                         val r = withContext(Dispatchers.IO) { GeminiClient.test(key, model) }
                         aiTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                        if (r.ok) save() // funguje → rovnou uložit
                     }
                 }) { Text("Otestovat API připojení") }
             }
@@ -1019,6 +1096,7 @@ fun AdminScreen(
                 scope.launch {
                     val (ok, msg) = withContext(Dispatchers.IO) { ReportWorker.test(url, token) }
                     reportTest = (if (ok) "✔ " else "✘ ") + msg
+                    if (ok) save() // funguje → rovnou uložit
                 }
             }) { Text("Otestovat spojení s účetnictvím") }
             reportTest?.let { Text(it, fontSize = 18.sp) }
@@ -1078,7 +1156,7 @@ fun AdminScreen(
 
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                BigButton("Zavřít", Modifier.weight(1f), primary = false, onClick = onClose)
+                BigButton("Zavřít", Modifier.weight(1f), primary = false) { requestClose() }
                 BigButton("Uložit", Modifier.weight(1f)) {
                     save(explicit = true)
                     onClose()
@@ -1086,6 +1164,28 @@ fun AdminScreen(
             }
         }
     }
+    }
+
+    if (askSaveOnClose) {
+        AlertDialog(
+            onDismissRequest = { askSaveOnClose = false },
+            title = { Text("Uložit změny?") },
+            text = { Text("V menu jsou neuložené změny.", fontSize = 18.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    askSaveOnClose = false
+                    save(explicit = true)
+                    onClose()
+                }) { Text("Uložit", fontSize = 20.sp) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    askSaveOnClose = false
+                    discardChanges = true
+                    onClose()
+                }) { Text("Zahodit", fontSize = 20.sp, color = Color(0xFFFF6E6E)) }
+            },
+        )
     }
 
     qrFor?.let { target ->
@@ -1102,29 +1202,32 @@ fun AdminScreen(
                         reportUrl = data.url
                         reportToken = data.token
                         data.name?.let { deviceName = it.take(40) }
-                        reportTest = "✔ Načteno z QR kódu – adresa a token vyplněné. Dej „Otestovat spojení“ a pak Uložit."
+                        reportTest = "✔ Načteno z QR kódu a uloženo. Zkus „Otestovat spojení s účetnictvím“."
                         if (target == "gemini") aiTest = "QR kód byl z účetnictví – vyplnil jsem ho do sekce Účetnictví (web)."
                     }
                     is QrScan.Data.Gemini -> {
                         apiKey = data.key
-                        aiTest = "✔ Klíč načten z QR kódu. Dej „Otestovat API připojení“ a pak Uložit."
+                        aiTest = "✔ Klíč načten z QR kódu a uložen. Zkus „Otestovat API připojení“."
                         if (target == "report") reportTest = "QR kód byl Gemini klíč – vyplnil jsem ho do AI & API nastavení."
                     }
                     is QrScan.Data.Text -> when {
                         target == "gemini" && QrScan.looksLikeKey(data.text) -> {
                             apiKey = data.text
-                            aiTest = "✔ Klíč načten z QR kódu. Dej „Otestovat API připojení“ a pak Uložit."
+                            aiTest = "✔ Klíč načten z QR kódu a uložen. Zkus „Otestovat API připojení“."
                         }
                         target == "report" && QrScan.looksLikeKey(data.text) -> {
                             reportToken = data.text
-                            reportTest = "✔ Token načten z QR kódu (adresu doplň ručně)."
+                            reportTest = "✔ Token načten z QR kódu a uložen (adresu doplň ručně)."
                         }
                         else -> {
                             val msg = "✘ Tenhle QR kód neobsahuje klíč ani token."
                             if (target == "gemini") aiTest = msg else reportTest = msg
+                            return@QrScanDialog
                         }
                     }
                 }
+                // Načtení QR kódu je jasný úmysl → uložit hned (jinak by se token ztratil při zavření bez Uložit).
+                save()
             },
         )
     }
