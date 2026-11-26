@@ -121,4 +121,6 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
 
     testImplementation("junit:junit:4.13.2")
+    // Skutečné org.json pro testy (v android.jar jsou jen prázdné kostry).
+    testImplementation("org.json:json:20240303")
 }

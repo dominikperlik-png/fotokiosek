@@ -22,18 +22,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     reply(405, ['ok' => false, 'error' => 'Použij POST']);
 }
 
-// Token automatu (některé servery hlavičku Authorization skryjí – proto i REDIRECT_HTTP_AUTHORIZATION).
-$auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-if (!preg_match('/^Bearer\s+([A-Za-z0-9_\-]{20,128})$/', trim($auth), $m)) {
-    reply(401, ['ok' => false, 'error' => 'Chybí nebo neplatný token']);
+$device = device_from_bearer();
+if ($device === null) {
+    reply(401, ['ok' => false, 'error' => 'Chybí, neznámý nebo zrušený token']);
 }
-$st = db()->prepare('SELECT id, name FROM devices WHERE token_hash = ? AND revoked = 0');
-$st->execute([token_hash($m[1])]);
-$device = $st->fetch();
-if (!$device) {
-    reply(401, ['ok' => false, 'error' => 'Neznámý nebo zrušený token']);
-}
-db()->prepare('UPDATE devices SET last_seen = ? WHERE id = ?')->execute([time(), $device['id']]);
 
 $raw = file_get_contents('php://input', false, null, 0, 16384);
 $data = json_decode($raw ?: '', true);

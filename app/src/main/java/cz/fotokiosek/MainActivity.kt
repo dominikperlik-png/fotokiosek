@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
         Kiosk.setup(this)
         val keepDays = settings.keepDays
         Thread { PhotoStore.cleanup(applicationContext, keepDays) }.start()
+        StyleSync.schedule(applicationContext)
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             cameraPermission.launch(Manifest.permission.CAMERA)

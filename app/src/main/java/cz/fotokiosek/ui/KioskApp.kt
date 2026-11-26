@@ -220,7 +220,7 @@ fun KioskApp(
         }
     }
 
-    fun aiStyles(): List<AiStyle> = AiStyles.load(settings).filter { it.enabled }
+    fun aiStyles(): List<AiStyle> = AiStyles.active(context, settings)
     fun aiActive() = settings.aiEnabled && settings.geminiApiKey.isNotBlank() && aiStyles().isNotEmpty()
     fun aiTriesLeft() = (settings.aiMaxTries.coerceIn(1, 20) - aiTries).coerceAtLeast(0)
 

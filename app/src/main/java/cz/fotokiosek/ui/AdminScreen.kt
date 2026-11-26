@@ -69,8 +69,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.work.WorkManager
-import cz.fotokiosek.AiStyle
 import cz.fotokiosek.AiStyles
+import cz.fotokiosek.StyleSync
 import cz.fotokiosek.AppLog
 import cz.fotokiosek.CameraController
 import cz.fotokiosek.FoundPrinter
@@ -214,8 +214,11 @@ fun AdminScreen(
     var apiKey by remember { mutableStateOf(settings.geminiApiKey) }
     var aiModel by remember { mutableStateOf(settings.geminiModel) }
     var aiMaxTries by remember { mutableStateOf(settings.aiMaxTries.toString()) }
-    val aiStyleList = remember { mutableStateListOf<AiStyle>().apply { addAll(AiStyles.load(settings)) } }
-    var editingStyle by remember { mutableStateOf<String?>(null) }
+    val styleVersion = StyleSync.version
+    val aiStyleList = remember(styleVersion) { AiStyles.available(context, settings) }
+    var aiStylesOn by remember { mutableStateOf(AiStyles.enabledIds(settings)) }
+    var styleSyncing by remember { mutableStateOf(false) }
+    var styleSyncInfo by remember { mutableStateOf(settings.styleSyncInfo) }
     var aiTest by remember { mutableStateOf<String?>(null) }
     var modelMenu by remember { mutableStateOf(false) }
     // --- počítadlo / účetnictví ---
@@ -354,7 +357,8 @@ fun AdminScreen(
         settings.geminiApiKey = apiKey.trim()
         settings.geminiModel = aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL }
         settings.aiMaxTries = aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3
-        AiStyles.save(settings, aiStyleList.filter { it.name.isNotBlank() && it.prompt.isNotBlank() })
+        // Jen styly, které existují (smazaný na webu se po případném návratu nezapne sám).
+        settings.aiStylesOn = aiStylesOn.filter { id -> aiStyleList.any { it.id == id } }.toSet()
         camera.applySettings()
         AppLog.i("Správa", "Nastavení uloženo")
     }
@@ -672,43 +676,44 @@ fun AdminScreen(
 
             Text("AI styly", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Zapnuté styly uvidí zákazník. Prompt piš anglicky – co změnit (styl, oblečení, pozadí). " +
-                    "Pokyn zachovat obličeje, výrazy, počet lidí a pózu se ke každému stylu přidá sám.",
+                "Styly (název, prompt, náhled) se spravují na webu účetnictví → AI styly; automat si je stahuje sám " +
+                    "(po startu a každých 6 h). Tady zapni, které zákazník uvidí. Nový styl z webu je vypnutý.",
                 fontSize = 15.sp,
                 color = Color.White.copy(alpha = 0.6f),
             )
-            aiStyleList.forEachIndexed { index, style ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Switch(checked = style.enabled, onCheckedChange = { aiStyleList[index] = style.copy(enabled = it) })
-                    Text("  ${style.icon} ${style.name}", fontSize = 20.sp, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { editingStyle = if (editingStyle == style.id) null else style.id }) {
-                        Text(if (editingStyle == style.id) "Hotovo" else "Upravit")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(enabled = !styleSyncing, onClick = {
+                    styleSyncing = true
+                    styleSyncInfo = "Synchronizuji…"
+                    val url = reportUrl
+                    val token = reportToken
+                    scope.launch {
+                        val (_, msg) = withContext(Dispatchers.IO) { StyleSync.sync(context.applicationContext, settings, url, token) }
+                        styleSyncInfo = msg
+                        styleSyncing = false
                     }
-                    if (!style.builtin) {
-                        TextButton(onClick = {
-                            if (editingStyle == style.id) editingStyle = null
-                            aiStyleList.removeAll { it.id == style.id }
-                        }) { Text("Smazat", color = Color(0xFFFF6E6E)) }
-                    }
-                }
-                if (editingStyle == style.id) {
-                    Field("Název (pro zákazníka)", style.name) { aiStyleList[index] = aiStyleList[index].copy(name = it.take(40)) }
-                    Field("Ikona (emoji)", style.icon) { aiStyleList[index] = aiStyleList[index].copy(icon = it.take(8)) }
-                    Field("Prompt (anglicky)", style.prompt, singleLine = false) { aiStyleList[index] = aiStyleList[index].copy(prompt = it.take(2000)) }
+                }) { Text("🔄 Synchronizovat styly") }
+            }
+            if (styleSyncInfo.isNotBlank()) Text(styleSyncInfo, fontSize = 16.sp)
+            if (StyleSync.stylesUrl(reportUrl) == null) {
+                Text("Bez webu účetnictví se nabízejí přibalené styly (bez náhledů).", fontSize = 15.sp, color = Color.White.copy(alpha = 0.6f))
+            }
+            aiStyleList.forEach { style ->
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        aiStylesOn = if (style.id in aiStylesOn) aiStylesOn - style.id else aiStylesOn + style.id
+                    }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    StyleThumb(style, Modifier.width(120.dp).height(80.dp).clip(RoundedCornerShape(10.dp)), iconSize = 36)
+                    Text("  ${style.name}", fontSize = 20.sp, modifier = Modifier.weight(1f))
+                    Switch(checked = style.id in aiStylesOn, onCheckedChange = { on ->
+                        aiStylesOn = if (on) aiStylesOn + style.id else aiStylesOn - style.id
+                    })
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    val id = "custom_${System.currentTimeMillis()}"
-                    aiStyleList += AiStyle(id, "Nový styl", "✨", "Describe the new art style, the clothing and the background here.")
-                    editingStyle = id
-                }) { Text("Přidat vlastní styl") }
-                OutlinedButton(onClick = {
-                    val reset = AiStyles.resetBuiltins(aiStyleList.toList())
-                    aiStyleList.clear()
-                    aiStyleList.addAll(reset)
-                    editingStyle = null
-                }) { Text("Obnovit výchozí styly") }
+            if (aiOn && aiStyleList.none { it.id in aiStylesOn }) {
+                Text("⚠ Není zapnutý žádný styl – zákazník AI nenabídne.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
             }
 
             // ---------------------------------------------------------------- Logo

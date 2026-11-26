@@ -1,7 +1,6 @@
 package cz.fotokiosek
 
 import org.json.JSONArray
-import org.json.JSONObject
 
 /** Jeden AI styl: název a ikona pro zákazníka, prompt (anglicky) pro model. */
 data class AiStyle(
@@ -12,10 +11,14 @@ data class AiStyle(
     val enabled: Boolean = true,
     /** Přibalený styl (jde vypnout a upravit, ne smazat). */
     val builtin: Boolean = false,
+    /** Náhled stylu (soubor stažený z knihovny na webu), null = jen ikona. */
+    val thumb: String? = null,
 )
 
 /**
- * Seznam AI stylů. Uložený jako JSON v nastavení `ai_styles`; prázdné = výchozí styly.
+ * AI styly. Hlavní zdroj je knihovna na webu (styles-api.php → [StyleSync], uložená v telefonu);
+ * dokud se nestáhne (nebo bez webu), platí starší místní seznam: JSON v `ai_styles`, prázdné = výchozí styly.
+ * Které styly zákazník uvidí, určuje `ai_styles_on` ([enabledIds]).
  * Do každého promptu se přidá [PRESERVE] – zachovat lidi, obličeje a pózu, měnit jen styl, oblečení a pozadí.
  */
 object AiStyles {
@@ -94,6 +97,25 @@ object AiStyles {
         ),
     )
 
+    /** Všechny styly, ze kterých správce vybírá: stažené z webu, jinak místní. */
+    fun available(context: android.content.Context, settings: KioskSettings): List<AiStyle> =
+        StyleSync.cached(context) ?: load(settings)
+
+    /** Zapnuté styly; dokud správce nevybral (ani se nestáhla knihovna), platí zapnuté z místního seznamu. */
+    fun enabledIds(settings: KioskSettings): Set<String> =
+        settings.aiStylesOn ?: load(settings).filter { it.enabled }.map { it.id }.toSet()
+
+    /** Styly pro zákazníka. */
+    fun active(context: android.content.Context, settings: KioskSettings): List<AiStyle> {
+        val on = enabledIds(settings)
+        return available(context, settings).filter { it.id in on }
+    }
+
+    /** Názvy stylů, které si správce dřív v automatu přidal nebo upravil (po přechodu na web se nepoužijí). */
+    fun locallyChanged(settings: KioskSettings): List<String> =
+        load(settings).filter { s -> s.prompt != defaults.firstOrNull { it.id == s.id }?.prompt }.map { it.name }
+
+    /** Starší místní seznam (před knihovnou na webu). */
     fun load(settings: KioskSettings): List<AiStyle> {
         val json = settings.aiStyles
         if (json.isBlank()) return defaults
@@ -115,26 +137,6 @@ object AiStyles {
         // Nové přibalené styly z aktualizace přidat na konec (uložený seznam je jinak nezná).
         return saved + defaults.filter { d -> saved.none { it.id == d.id } }
     }
-
-    fun save(settings: KioskSettings, styles: List<AiStyle>) {
-        // Beze změn = nic neukládat, ať se opravy výchozích stylů z aktualizací projeví.
-        if (styles == defaults) {
-            settings.aiStyles = ""
-            return
-        }
-        val arr = JSONArray()
-        styles.forEach { s ->
-            arr.put(
-                JSONObject()
-                    .put("id", s.id).put("name", s.name).put("icon", s.icon).put("prompt", s.prompt)
-                    .put("enabled", s.enabled).put("builtin", s.builtin),
-            )
-        }
-        settings.aiStyles = arr.toString()
-    }
-
-    /** Výchozí styly zpět (vlastní styly zůstanou). */
-    fun resetBuiltins(current: List<AiStyle>): List<AiStyle> = defaults + current.filter { !it.builtin }
 
     fun fullPrompt(style: AiStyle) = PRESERVE + style.prompt.trim()
 }

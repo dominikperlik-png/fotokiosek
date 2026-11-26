@@ -100,8 +100,19 @@ class KioskSettings(context: Context) {
     var geminiModel by string("gemini_model", GeminiClient.DEFAULT_MODEL)
     /** Kolik AI stylů smí zákazník zkusit u jedné fotky (každý pokus se platí). */
     var aiMaxTries by int("ai_max_tries", 3)
-    /** Seznam stylů jako JSON (viz AiStyles); prázdné = výchozí styly. */
+    /** Starší místní seznam stylů jako JSON (z doby před knihovnou na webu); prázdné = výchozí styly. Jen záloha bez webu. */
     var aiStyles by string("ai_styles", "")
+    /**
+     * Které AI styly zákazník uvidí (id). null = ještě nevybráno → podle staršího místního seznamu (viz AiStyles.enabledIds).
+     * Styl, který tu není (např. nový z webu), je vypnutý.
+     */
+    var aiStylesOn: Set<String>?
+        get() = prefs.getString("ai_styles_on", null)?.split(',')?.filter { it.isNotBlank() }?.toSet()
+        set(value) = prefs.edit().apply {
+            if (value == null) remove("ai_styles_on") else putString("ai_styles_on", value.sorted().joinToString(","))
+        }.apply()
+    /** Výsledek poslední synchronizace stylů s webem (pro menu správce). */
+    var styleSyncInfo by string("style_sync_info", "")
 
     // --- Webové účetnictví (složka web/) ---
     /** Adresa API účetnictví, např. https://muj-server.cz/fotokiosek/api.php. Prázdné = nehlásit. */

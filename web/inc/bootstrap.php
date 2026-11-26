@@ -17,6 +17,7 @@ define('DATA_DIR', getenv('FOTOKIOSEK_DATA_DIR') ?: dirname(__DIR__) . '/data');
 if (is_file(dirname(__DIR__) . '/config.php')) {
     require dirname(__DIR__) . '/config.php';
 }
+require __DIR__ . '/styles.php';
 
 /** Ořízne text na $len znaků (bez mbstring po bajtech, ale bez rozbití UTF-8). */
 function clip(mixed $v, int $len): string
@@ -100,7 +101,22 @@ function migrate(PDO $pdo): void
             ip TEXT NOT NULL,
             at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS styles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL DEFAULT '',
+            prompt TEXT NOT NULL,
+            sort INTEGER NOT NULL DEFAULT 0,
+            thumb TEXT,
+            updated_at INTEGER NOT NULL
+        );
         SQL);
+    // Knihovna AI stylů: výchozí styly jen jednou (smazané se pak samy nevrátí).
+    $seeded = $pdo->query("SELECT value FROM settings WHERE key = 'styles_seeded'")->fetchColumn();
+    if ($seeded === false) {
+        seed_styles($pdo);
+        $pdo->exec("INSERT OR REPLACE INTO settings(key, value) VALUES('styles_seeded', '1')");
+    }
     // Cena za fotku platná v době tisku (změna ceny nepřepočítá minulost). Starší záznamy: NULL = aktuální cena.
     $cols = array_column($pdo->query('PRAGMA table_info(events)')->fetchAll(), 'name');
     if (!in_array('price', $cols, true)) {
@@ -420,6 +436,24 @@ function token_hash(string $token): string
     return hash('sha256', $token);
 }
 
+/** Automat podle hlavičky Authorization: Bearer <token> (aktivní token), jinak null. Zapíše „naposledy se ozval“. */
+function device_from_bearer(): ?array
+{
+    // Některé servery hlavičku Authorization skryjí – proto i REDIRECT_HTTP_AUTHORIZATION.
+    $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+    if (!preg_match('/^Bearer\s+([A-Za-z0-9_\-]{20,128})$/', trim((string)$auth), $m)) {
+        return null;
+    }
+    $st = db()->prepare('SELECT id, name FROM devices WHERE token_hash = ? AND revoked = 0');
+    $st->execute([token_hash($m[1])]);
+    $device = $st->fetch();
+    if (!$device) {
+        return null;
+    }
+    db()->prepare('UPDATE devices SET last_seen = ? WHERE id = ?')->execute([time(), $device['id']]);
+    return $device;
+}
+
 function page_header(string $title, ?array $user = null): void
 {
     // Session (a CSRF token) musí vzniknout před prvním výpisem – kvůli cookie.
@@ -441,6 +475,7 @@ function page_header(string $title, ?array $user = null): void
         echo '<header class="top no-print"><span class="brand"><span class="dot"></span>Fotokiosek</span><nav>';
         $items = ['index.php' => 'Přehled', 'receipts.php' => 'Účtenky'];
         if (is_admin($user)) {
+            $items['styles.php'] = 'AI styly';
             $items['users.php'] = 'Uživatelé';
         }
         $items['settings.php'] = 'Nastavení';

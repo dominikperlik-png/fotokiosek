@@ -5,6 +5,9 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 
 ## Požadavky
 - PHP **8.1 nebo novější** s rozšířením **pdo_sqlite** (`php -m | grep -i sqlite`). `mbstring` je vhodné, ne nutné.
+- Pro knihovnu AI stylů: **gd** (zmenšení náhledů na 768×512; bez něj jde nahrát jen hotový obrázek do 1,5 MB),
+  **curl** nebo `allow_url_fopen` (generování náhledů přes Gemini), `exif` je vhodné (otočení fotek z mobilu).
+  `upload_max_filesize` / `post_max_size` aspoň 10M. Generování trvá až minutu – časový limit proxy / PHP-FPM aspoň 180 s.
 - Web server: Apache (stačí `.htaccess`) nebo nginx + PHP-FPM.
 - **HTTPS** (např. Let's Encrypt). Automat posílá token v hlavičce, bez HTTPS by šel sítí čitelně.
   Android 7.0 kořenový certifikát Let's Encrypt (ISRG Root X1) nezná – aplikace v automatu ho proto má přibalený, takže
@@ -42,9 +45,12 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 | `index.php` | Přehled: filtr období, součty, tabulka po dnech, všechny záznamy, vystavení účtenky. |
 | `receipts.php`, `receipt.php` | Seznam účtenek, vystavení (číslo `rok-pořadí`), tisk (80 mm, jde i na A4). Účtenka si pamatuje údaje z doby vystavení. |
 | `settings.php` | Cena, měna, údaje prodávajícího, automaty a jejich tokeny (uložené jen jako SHA-256) – jen správce; změna vlastního hesla – všichni. |
+| `styles.php` | Knihovna AI stylů (jen správce): název, ikona, prompt, pořadí, náhled (nahrát, nebo vygenerovat přes Gemini z referenční fotky – vymyšlená postava, stejná na všech náhledech). Gemini klíč a model pro generování se ukládají do databáze. |
+| `styles-api.php` | Styly pro automaty (`GET`, `Authorization: Bearer <token>`): `{"ok":true,"styles":[{"id","name","icon","prompt","thumb","updated"}]}`, náhled `GET ?thumb=<soubor>`. Automat si je stáhne po startu, každých 6 h a tlačítkem v menu správce; které styly nabídne, se vybírá v automatu. |
 | `users.php` | Uživatelé (jen správce): přidat, role, nové heslo, smazat. Role **Správce** = vše, **Přehled a účtenky** = přehled + vystavení a tisk účtenek. Sebe ani posledního správce smazat nejde; nové heslo odhlásí uživatele na všech zařízeních. |
 | `inc/bootstrap.php` | Databáze (tabulky se vytvoří samy), session, CSRF, pomocné funkce. |
-| `data/` | Databáze `fotokiosek.sqlite` – **zálohuj ji** (stačí zkopírovat soubor). |
+| `inc/styles.php` | Výchozí styly, ukládání náhledů, volání Gemini. Pevná část promptu `STYLE_PRESERVE` = `AiStyles.PRESERVE` v aplikaci (měnit obojí). |
+| `data/` | Databáze `fotokiosek.sqlite` a `styles/` (náhledy, referenční fotka) – **zálohuj obojí**. |
 
 ## Formát události z automatu
 ```json

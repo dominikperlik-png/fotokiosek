@@ -45,9 +45,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.produceState
 import cz.fotokiosek.AiStyle
+import cz.fotokiosek.StyleSync
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-/** Výběr AI stylu po vyfocení: mřížka karet (ikona + název), plus původní fotka a případně poslední AI fotka. */
+/** Výběr AI stylu po vyfocení: mřížka karet (náhled nebo ikona + název), plus původní fotka a případně poslední AI fotka. */
 @Composable
 fun AiPickScreen(
     styles: List<AiStyle>,
@@ -69,7 +73,7 @@ fun AiPickScreen(
         )
         Spacer(Modifier.height(16.dp))
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(180.dp),
+            columns = GridCells.Adaptive(210.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -77,9 +81,9 @@ fun AiPickScreen(
             if (lastResult != null) {
                 item(key = "last") { ResultCard(lastResult, "Poslední AI fotka", onLastResult) }
             }
-            item(key = "original") { StyleCard("📷", "Bez úpravy (původní fotka)", enabled = true, highlight = false, onClick = onOriginal) }
+            item(key = "original") { StyleCard(null, "📷", "Bez úpravy (původní fotka)", enabled = true, highlight = false, onClick = onOriginal) }
             items(styles, key = { it.id }) { style ->
-                StyleCard(style.icon, style.name, enabled = triesLeft > 0, highlight = true) { onPick(style) }
+                StyleCard(style, style.icon, style.name, enabled = triesLeft > 0, highlight = true) { onPick(style) }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -93,37 +97,64 @@ fun AiPickScreen(
     }
 }
 
+/** Náhled stylu (staženy z webu) přes celou plochu, jinak velká ikona. Dekóduje se mimo hlavní vlákno. */
 @Composable
-private fun StyleCard(icon: String, name: String, enabled: Boolean, highlight: Boolean, onClick: () -> Unit) {
+fun StyleThumb(style: AiStyle?, modifier: Modifier, icon: String = style?.icon.orEmpty(), iconSize: Int = 56, dimmed: Boolean = false) {
+    val path = style?.thumb
+    val bitmap by produceState<Bitmap?>(null, path) {
+        value = path?.let { withContext(Dispatchers.IO) { runCatching { StyleSync.thumbnail(it) }.getOrNull() } }
+    }
+    Box(modifier.background(Color.White.copy(alpha = 0.06f)), contentAlignment = Alignment.Center) {
+        val b = bitmap
+        if (b != null) {
+            val image = remember(b) { b.asImageBitmap() }
+            Image(
+                image,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alpha = if (dimmed) 0.4f else 1f,
+            )
+        } else {
+            Text(icon.ifBlank { "✨" }, fontSize = iconSize.sp, color = if (dimmed) Color.White.copy(alpha = 0.4f) else Color.White)
+        }
+    }
+}
+
+@Composable
+private fun StyleCard(style: AiStyle?, icon: String, name: String, enabled: Boolean, highlight: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
-            .height(150.dp)
+            .height(CARD_HEIGHT)
             .clip(RoundedCornerShape(20.dp))
             .background(if (enabled) KeyColor else KeyColor.copy(alpha = 0.4f))
             .border(2.dp, if (highlight && enabled) Accent.copy(alpha = 0.7f) else Color.Transparent, RoundedCornerShape(20.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(12.dp),
+            .padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
-        Text(icon.ifBlank { "✨" }, fontSize = 48.sp, color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f))
-        Spacer(Modifier.height(8.dp))
+        StyleThumb(style, Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(14.dp)), icon = icon, dimmed = !enabled)
         Text(
             name,
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
+            maxLines = 2,
             color = if (enabled) Color.White else Color.White.copy(alpha = 0.4f),
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
+
+/** Stejná výška všech karet (náhled 3:2 + název). */
+private val CARD_HEIGHT = 200.dp
 
 @Composable
 private fun ResultCard(photo: Bitmap, label: String, onClick: () -> Unit) {
     val image = remember(photo) { photo.asImageBitmap() }
     Column(
         Modifier
-            .height(150.dp)
+            .height(CARD_HEIGHT)
             .clip(RoundedCornerShape(20.dp))
             .background(KeyColor)
             .border(2.dp, Accent, RoundedCornerShape(20.dp))
