@@ -39,6 +39,9 @@ object StyleSync {
     private val THUMB = Regex("^[a-z0-9-]{1,40}-[0-9a-f]{8}\\.(jpg|png|webp)$")
     private val lock = Any()
 
+    /** Max. délka promptu – stejný limit má web (`PROMPT_MAX` ve `web/inc/styles.php`). */
+    const val PROMPT_MAX = 8000
+
     /** Zvýší se po každé synchronizaci se změnou – Compose podle něj znovu načte seznam. */
     var version by mutableIntStateOf(0)
         private set
@@ -75,7 +78,7 @@ object StyleSync {
                 id = id,
                 name = name.take(40),
                 icon = o.optString("icon").take(8),
-                prompt = prompt.take(2000),
+                prompt = prompt.take(PROMPT_MAX),
                 // S [thumbDir] jen existující soubor (nestažený náhled = ikona).
                 thumb = thumb?.let { if (thumbDir == null) it else File(thumbDir, it).takeIf { f -> f.exists() }?.path },
             )

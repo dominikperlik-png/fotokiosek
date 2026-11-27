@@ -19,6 +19,8 @@ function styles_dir(): string
 const THUMB_PATTERN = '/^[a-z0-9-]{1,40}-[0-9a-f]{8}\.(jpg|png|webp)$/D';
 const THUMB_W = 768;
 const THUMB_H = 512;
+/** Max. délka promptu stylu ve znacích – stejný limit je v automatu (StyleSync.PROMPT_MAX). */
+const PROMPT_MAX = 8000;
 
 /** Stejná pevná část promptu jako v automatu (AiStyles.PRESERVE) – náhled vznikne stejně jako fotka zákazníka. */
 const STYLE_PRESERVE =

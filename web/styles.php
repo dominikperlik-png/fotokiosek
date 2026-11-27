@@ -60,11 +60,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && (int)($_SERVER['CO
         if ($action === 'save') {
             $name = clip(trim(post_str('name')), 40);
             $icon = clip(trim(post_str('icon')), 8);
-            $prompt = clip(trim(post_str('prompt')), 2000);
-            if ($name === '' || $prompt === '') {
+            // Prohlížeč posílá konce řádků jako \r\n, ale maxlength je počítá jako 1 znak.
+            $prompt = str_replace("\r\n", "\n", trim(post_str('prompt')));
+            if (!preg_match('//u', $prompt)) {
+                throw new RuntimeException('Prompt obsahuje neplatné znaky.');
+            }
+            $promptLen = function_exists('mb_strlen') ? mb_strlen($prompt) : (int)preg_match_all('/./us', $prompt);
+            if ($name === '' || $prompt === '' || $promptLen > PROMPT_MAX) {
                 $editId = $id !== '' ? $id : null;
                 $isNew = $id === '';
-                throw new RuntimeException('Vyplň název i prompt.');
+                throw new RuntimeException($promptLen > PROMPT_MAX
+                    ? 'Prompt je moc dlouhý (' . $promptLen . ' znaků, max. ' . PROMPT_MAX . '). Zkrať ho.'
+                    : 'Vyplň název i prompt.');
             }
             if ($style !== null) {
                 db()->prepare('UPDATE styles SET name = ?, icon = ?, prompt = ?, updated_at = ? WHERE id = ?')
@@ -143,6 +150,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && (int)($_SERVER['CO
     }
 }
 
+// Neuložený formulář ukázat znovu s tím, co se psalo (ne s uloženou verzí).
+$saveFailed = $err !== '' && ($action ?? '') === 'save';
 $styles = all_styles();
 $editing = $editId !== null ? find_style($editId) : null;
 $hasKey = setting('gemini_key') !== '';
@@ -168,10 +177,11 @@ page_header('AI styly', $user);
     <form method="post" class="grid">
         <?= csrf_field() ?><input type="hidden" name="action" value="save">
         <input type="hidden" name="id" value="<?= h($editing['id'] ?? '') ?>">
-        <label>Název (vidí ho zákazník) <input name="name" maxlength="40" required value="<?= h($editing['name'] ?? post_str('name')) ?>"></label>
-        <label>Ikona (emoji, když chybí náhled) <input name="icon" maxlength="8" value="<?= h($editing['icon'] ?? (post_str('icon') ?: '✨')) ?>"></label>
+        <label>Název (vidí ho zákazník) <input name="name" maxlength="40" required value="<?= h($saveFailed ? post_str('name') : ($editing['name'] ?? '')) ?>"></label>
+        <label>Ikona (emoji, když chybí náhled) <input name="icon" maxlength="8" value="<?= h($saveFailed ? post_str('icon') : ($editing['icon'] ?? '✨')) ?>"></label>
         <label class="wide">Prompt (anglicky – co změnit: styl, oblečení, pozadí)
-            <textarea name="prompt" rows="5" maxlength="2000" required><?= h($editing['prompt'] ?? post_str('prompt')) ?></textarea></label>
+            <textarea name="prompt" rows="8" maxlength="<?= PROMPT_MAX ?>" required data-counter="prompt-count"><?= h($saveFailed ? post_str('prompt') : ($editing['prompt'] ?? '')) ?></textarea>
+            <span class="muted" id="prompt-count"></span></label>
         <p class="muted wide">Pokyn zachovat obličeje, výrazy, počet lidí a pózu přidá automat ke každému stylu sám.</p>
         <div class="row wide"><button class="primary">Uložit</button><a href="styles.php">Zpět na seznam</a></div>
     </form>
@@ -273,4 +283,5 @@ page_header('AI styly', $user);
 </section>
 <script src="assets/confirm.js"></script>
 <script src="assets/busy.js"></script>
+<script src="assets/counter.js"></script>
 <?php page_footer();
