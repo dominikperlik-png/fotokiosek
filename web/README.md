@@ -40,13 +40,13 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 ## Co je kde
 | Soubor | K čemu |
 |---|---|
-| `api.php` | Příjem událostí z automatu (POST JSON, `Authorization: Bearer <token>`); duplicitní `uuid` se ignoruje. |
+| `api.php` | Příjem událostí z automatu (POST JSON, `Authorization: Bearer <token>`): `print`, `ai`, `photo` (vyfoceno), `email` (fotka zařazená k odeslání e-mailem), `ping` (test); duplicitní `uuid` se ignoruje. |
 | `login.php`, `logout.php` | Přihlášení (první spuštění = založení účtu s instalačním kódem), max. 10 špatných pokusů / 15 min z jedné IP. |
 | `index.php` | Přehled: filtr období, součty, tabulka po dnech, všechny záznamy, vystavení účtenky. |
 | `receipts.php`, `receipt.php` | Seznam účtenek, vystavení (číslo `rok-pořadí`), tisk (80 mm, jde i na A4). Účtenka si pamatuje údaje z doby vystavení. |
-| `settings.php` | Cena, měna, údaje prodávajícího, automaty a jejich tokeny (uložené jen jako SHA-256) – jen správce; změna vlastního hesla – všichni. |
+| `settings.php` | Cena, měna, údaje prodávajícího, pravidla pro automaty (max. kopií, ceny AI fotky a e-mailu – stahují se se styly), automaty a jejich tokeny (uložené jen jako SHA-256) – jen správce; změna vlastního hesla – všichni. |
 | `styles.php` | Knihovna AI stylů (jen správce): název, ikona, prompt, pořadí, náhled (nahrát, nebo vygenerovat přes Gemini z referenční fotky – vymyšlená postava, stejná na všech náhledech). Gemini klíč a model pro generování se ukládají do databáze. |
-| `styles-api.php` | Styly pro automaty (`GET`, `Authorization: Bearer <token>`): `{"ok":true,"styles":[{"id","name","icon","prompt","thumb","updated"}]}`, náhled `GET ?thumb=<soubor>`. Automat si je stáhne po startu, každých 6 h a tlačítkem v menu správce; které styly nabídne, se vybírá v automatu. |
+| `styles-api.php` | Styly pro automaty (`GET`, `Authorization: Bearer <token>`): `{"ok":true,"styles":[{"id","name","icon","prompt","thumb","updated"}],"config":{"max_copies"|null,"price_photo","price_ai","price_email","currency"}}` (styly v pořadí z webu, config = pravidla z Nastavení), náhled `GET ?thumb=<soubor>`. Automat si je stáhne po startu, každých 6 h a tlačítkem v menu správce; které styly nabídne, se vybírá v automatu. |
 | `users.php` | Uživatelé (jen správce): přidat, role, nové heslo, smazat. Role **Správce** = vše, **Přehled a účtenky** = přehled + vystavení a tisk účtenek. Sebe ani posledního správce smazat nejde; nové heslo odhlásí uživatele na všech zařízeních. |
 | `inc/bootstrap.php` | Databáze (tabulky se vytvoří samy), session, CSRF, pomocné funkce. |
 | `inc/styles.php` | Výchozí styly, ukládání náhledů, volání Gemini. Pevná část promptu `STYLE_PRESERVE` = `AiStyles.PRESERVE` v aplikaci (měnit obojí). |

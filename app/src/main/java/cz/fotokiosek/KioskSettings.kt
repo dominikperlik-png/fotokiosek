@@ -114,6 +114,18 @@ class KioskSettings(context: Context) {
     /** Výsledek poslední synchronizace stylů s webem (pro menu správce). */
     var styleSyncInfo by string("style_sync_info", "")
 
+    // --- Pravidla z webu (styles-api.php → config, stahují se se styly; viz StyleSync.WebConfig) ---
+    /** Max. kopií jednoho tisku podle webu; 0 = web nic neurčuje (platí [printMaxCopies]). */
+    var webMaxCopies by int("web_max_copies", 0)
+    /** Ceny pro samoobslužný režim (číslo jako text, např. „100“ nebo „49.9“; prázdné = zatím nestaženo). */
+    var pricePhoto by string("price_photo", "")
+    var priceAi by string("price_ai", "")
+    var priceEmail by string("price_email", "")
+    var priceCurrency by string("price_currency", "Kč")
+
+    /** Kolik kopií smí zákazník vytisknout: podle webu, jinak podle menu správce. */
+    fun maxCopies(): Int = (if (webMaxCopies > 0) webMaxCopies else printMaxCopies).coerceIn(1, 20)
+
     // --- Webové účetnictví (složka web/) ---
     /** Adresa API účetnictví, např. https://muj-server.cz/fotokiosek/api.php. Prázdné = nehlásit. */
     var reportUrl by string("report_url", "")

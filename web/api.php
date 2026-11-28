@@ -2,7 +2,7 @@
 /**
  * Příjem událostí z automatu (ReportWorker.kt).
  * POST JSON, hlavička Authorization: Bearer <token automatu>.
- * {"uuid", "type": "print"|"ai"|"ping", "copies", "source", "style", "mode", "device", "time": "2026-11-25T14:03:00+0100"}
+ * {"uuid", "type": "print"|"ai"|"photo"|"email"|"ping", "copies", "source", "style", "mode", "device", "time": "2026-11-25T14:03:00+0100"}
  * Stejné uuid podruhé = ignorovat (automat posílá znovu, když nedostane odpověď).
  */
 declare(strict_types=1);
@@ -37,7 +37,7 @@ $type = (string)($data['type'] ?? '');
 if ($type === 'ping') {
     reply(200, ['ok' => true, 'device' => $device['name']]);
 }
-if (!in_array($type, ['print', 'ai'], true)) {
+if (!in_array($type, EVENT_TYPES, true)) {
     reply(422, ['ok' => false, 'error' => 'Neznámý typ události']);
 }
 

@@ -1,5 +1,5 @@
 <?php
-/** Přehled: tisky a AI úpravy v období, souhrn po dnech, seznam záznamů, vystavení účtenky. */
+/** Přehled: fotky, tisky, AI úpravy a e-maily v období, souhrn po dnech, seznam záznamů, vystavení účtenky. */
 declare(strict_types=1);
 require __DIR__ . '/inc/bootstrap.php';
 $user = require_login();
@@ -20,11 +20,13 @@ $days = [];
 $copies = 0;
 $jobs = 0;
 $ai = 0;
+$shots = 0;
+$mails = 0;
 $revenue = 0.0;
 $prices = [];
 foreach ($events as $e) {
     $day = date('Y-m-d', (int)$e['happened_at']);
-    $days[$day] ??= ['copies' => 0, 'jobs' => 0, 'ai' => 0, 'revenue' => 0.0];
+    $days[$day] ??= ['photo' => 0, 'copies' => 0, 'jobs' => 0, 'ai' => 0, 'email' => 0, 'revenue' => 0.0];
     if ($e['type'] === 'print') {
         $p = $e['price'] === null ? $price : (float)$e['price'];
         $prices[(string)$p] = true;
@@ -37,11 +39,18 @@ foreach ($events as $e) {
     } elseif ($e['type'] === 'ai') {
         $days[$day]['ai']++;
         $ai++;
+    } elseif ($e['type'] === 'photo') {
+        $days[$day]['photo']++;
+        $shots++;
+    } elseif ($e['type'] === 'email') {
+        $days[$day]['email']++;
+        $mails++;
     }
 }
 krsort($days);
 
 $sourceLabel = ['foto' => 'nová fotka', 'galerie' => 'z galerie', 'ai' => 'AI'];
+$typeLabel = ['print' => 'tisk', 'ai' => 'AI úprava', 'photo' => 'vyfoceno', 'email' => 'e-mail'];
 
 page_header('Přehled', $user);
 ?>
@@ -70,9 +79,11 @@ page_header('Přehled', $user);
 </form>
 
 <section class="stats">
+    <div class="stat"><span class="num"><?= $shots ?></span><span>vyfocených fotek</span></div>
     <div class="stat"><span class="num"><?= $copies ?></span><span>vytištěných fotek</span></div>
     <div class="stat"><span class="num"><?= $jobs ?></span><span>tiskových úloh</span></div>
     <div class="stat"><span class="num"><?= $ai ?></span><span>AI úprav</span></div>
+    <div class="stat"><span class="num"><?= $mails ?></span><span>fotek k odeslání e-mailem</span></div>
     <div class="stat main"><span class="num"><?= h(money($revenue)) ?></span><span>tržba (<?= count($prices) > 1 ? 'víc cen' : h(money($prices ? (float)array_key_first($prices) : $price)) . ' / fotka' ?>)</span></div>
 </section>
 
@@ -100,14 +111,16 @@ page_header('Přehled', $user);
         <p class="muted">Žádné záznamy. Zkontroluj, že má automat v menu správce vyplněné „Účetnictví (web)“.</p>
     <?php else: ?>
         <div class="table-wrap"><table class="stack">
-            <thead><tr><th>Den</th><th class="r">Fotek</th><th class="r">Úloh</th><th class="r">AI úprav</th><th class="r">Tržba</th></tr></thead>
+            <thead><tr><th>Den</th><th class="r">Vyfoceno</th><th class="r">Vytištěno</th><th class="r">Úloh</th><th class="r">AI úprav</th><th class="r">E-mailů</th><th class="r">Tržba</th></tr></thead>
             <tbody>
             <?php foreach ($days as $day => $d): ?>
                 <tr>
                     <td class="head"><a href="?from=<?= h($day) ?>&amp;to=<?= h($day) ?>"><?= h(fmt_date(strtotime($day))) ?></a></td>
-                    <td class="r" data-label="Fotek"><?= $d['copies'] ?></td>
+                    <td class="r" data-label="Vyfoceno"><?= $d['photo'] ?></td>
+                    <td class="r" data-label="Vytištěno"><?= $d['copies'] ?></td>
                     <td class="r" data-label="Tiskových úloh"><?= $d['jobs'] ?></td>
                     <td class="r" data-label="AI úprav"><?= $d['ai'] ?></td>
+                    <td class="r" data-label="E-mailů"><?= $d['email'] ?></td>
                     <td class="r" data-label="Tržba"><?= h(money($d['revenue'])) ?></td>
                 </tr>
             <?php endforeach; ?>
@@ -126,7 +139,7 @@ page_header('Přehled', $user);
             <tr>
                 <td class="head"><?= h(fmt_time((int)$e['happened_at'])) ?></td>
                 <td data-label="Automat"><?= h($e['device_label'] !== '' ? $e['device_label'] : $e['device_name']) ?></td>
-                <td data-label="Co"><span class="badge"><?= $e['type'] === 'print' ? 'tisk' : 'AI úprava' ?></span></td>
+                <td data-label="Co"><span class="badge"><?= h($typeLabel[$e['type']] ?? $e['type']) ?></span></td>
                 <td class="r" data-label="Kopií"><?= $e['type'] === 'print' ? (int)$e['copies'] : '' ?></td>
                 <td data-label="Odkud"><?= h($sourceLabel[$e['source']] ?? $e['source']) ?></td>
                 <td data-label="AI styl"><?= h($e['style']) ?></td>

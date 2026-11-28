@@ -332,6 +332,7 @@ fun KioskApp(
             result.onSuccess { raw ->
                 // Galerie (když je zapnutá): fotka bez loga, aby šla znovu tisknout i posílat.
                 saveToGallery(raw)
+                ReportWorker.photo(context, settings)
                 // Mezistav: pořízená fotka se „vyvolá“, mezitím se na pozadí připraví logo a tisková verze.
                 val developing = Screen.Developing(raw)
                 screen = developing
@@ -370,11 +371,14 @@ fun KioskApp(
             return
         }
         screen = Screen.Sent
+        val style = shownStyle
+        val source = if (fromGallery) "galerie" else "foto"
         scope.launch(Dispatchers.IO) {
             try {
                 val file = PhotoStore.save(context, photo)
                 SendPhotoWorker.enqueue(context, file, email)
                 AppLog.i("Fronta", "Fotka ${file.name} zařazena k odeslání")
+                ReportWorker.email(context, settings, source, style)
             } catch (e: Exception) {
                 settings.lastError = "Uložení fotky selhalo: ${e.message}"
                 AppLog.e("Fronta", "Uložení fotky selhalo", e)
@@ -597,7 +601,7 @@ fun KioskApp(
 
             printFor?.let { photo ->
                 CopiesDialog(
-                    max = settings.printMaxCopies.coerceIn(1, 20),
+                    max = settings.maxCopies(),
                     onCancel = { printFor = null },
                     onConfirm = { copies -> print(photo, copies) },
                 )

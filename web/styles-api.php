@@ -1,7 +1,8 @@
 <?php
 /**
  * Knihovna AI stylů pro automaty (StyleSync.kt). Hlavička Authorization: Bearer <token automatu>.
- * GET                          → {"ok":true,"styles":[{"id","name","icon","prompt","thumb":"comic-9f3e1a2b.jpg"|null,"updated"}]}
+ * GET                          → {"ok":true,"styles":[{"id","name","icon","prompt","thumb":"comic-9f3e1a2b.jpg"|null,"updated"}],
+ *                                  "config":{"max_copies"|null,"price_photo","price_ai","price_email","currency"}}  (kiosk_config())
  * GET ?thumb=comic-9f3e1a2b.jpg → obrázek náhledu (jen soubory, které patří nějakému stylu).
  */
 declare(strict_types=1);
@@ -44,4 +45,4 @@ $styles = array_map(fn(array $s) => [
     'thumb' => ($s['thumb'] && is_file(styles_dir() . '/' . $s['thumb'])) ? $s['thumb'] : null,
     'updated' => (int)$s['updated_at'],
 ], all_styles());
-reply(200, ['ok' => true, 'styles' => $styles]);
+reply(200, ['ok' => true, 'styles' => $styles, 'config' => kiosk_config()]);

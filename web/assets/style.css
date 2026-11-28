@@ -140,7 +140,7 @@ form.inline { display: inline; }
 .quick a:hover { text-decoration: none; background: var(--card); }
 
 /* ---------- čísla ---------- */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 20px; }
 .stat { background: var(--card); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 2px; }
 .stat .num { font-size: 32px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .stat span:last-child { font-size: 14px; color: var(--muted); }
@@ -236,6 +236,9 @@ tbody tr:hover td { background: rgba(127, 127, 127, 0.05); }
 .style-name { font-weight: 600; padding: 10px 12px 2px; }
 .style-actions { display: flex; gap: 14px; align-items: center; padding: 4px 12px 12px; font-size: 15px; }
 .style-actions button[disabled] { opacity: 0.3; cursor: default; }
+.drag-handle { cursor: grab; touch-action: none; user-select: none; font-size: 22px; line-height: 1; padding: 4px 6px; margin-left: -6px; color: var(--muted); }
+.style-card.dragging { opacity: 0.6; outline: 2px dashed var(--accent, #0a84ff); }
+body.reordering, body.reordering * { cursor: grabbing !important; user-select: none; }
 .style-edit-thumb { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 16px; }
 .style-edit-thumb > img, .style-edit-thumb > .style-ph { width: 300px; max-width: 100%; aspect-ratio: 3 / 2; border-radius: 12px; object-fit: cover; }
 .style-edit-thumb > div:last-child { flex: 1; min-width: 240px; }

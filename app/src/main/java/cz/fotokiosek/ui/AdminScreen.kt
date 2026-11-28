@@ -1010,6 +1010,13 @@ fun AdminScreen(
                         )
                     }
                     Field("Max. počet kopií pro zákazníka", printMaxCopies, number = true) { printMaxCopies = it.filter(Char::isDigit) }
+                    if (settings.webMaxCopies > 0) {
+                        Text(
+                            "Teď platí ${settings.webMaxCopies} – určuje to web (Nastavení → Samoobslužný režim a pravidla). Toto číslo platí, jen když web nic neurčí.",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                    }
                 }
             }
 

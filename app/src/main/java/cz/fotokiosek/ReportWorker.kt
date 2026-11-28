@@ -19,7 +19,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
- * Hlášení do webového účetnictví (složka `web/` v repozitáři): každý tisk (a každá AI úprava) jako jedna
+ * Hlášení do webového účetnictví (složka `web/` v repozitáři): každý tisk, AI úprava, vyfocení a e-mail jako jedna
  * událost POST JSON na `report_url` s hlavičkou `Authorization: Bearer <report_token>`.
  * Jde přes frontu WorkManageru jako e-maily – bez internetu se pošle později (i po restartu).
  * Každá událost má UUID, server duplicity ignoruje, takže opakované odeslání nic nezdvojí.
@@ -67,6 +67,14 @@ class ReportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         /** Tisk [copies] kopií. [source] = foto / galerie, [style] = název AI stylu, nebo null. */
         fun print(context: Context, settings: KioskSettings, copies: Int, source: String, style: String?) =
             enqueue(context, settings, "print", copies, source, style)
+
+        /** Pořízená fotka (z fotoaparátu, ne z galerie). */
+        fun photo(context: Context, settings: KioskSettings) =
+            enqueue(context, settings, "photo", 0, "foto", null)
+
+        /** Fotka zařazená k odeslání e-mailem ([source] = foto / galerie, [style] = AI styl fotky, nebo null). */
+        fun email(context: Context, settings: KioskSettings, source: String, style: String?) =
+            enqueue(context, settings, "email", 0, source, style)
 
         /** Povedená AI úprava (placená). */
         fun ai(context: Context, settings: KioskSettings, style: String) =

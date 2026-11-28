@@ -136,6 +136,8 @@ function migrate(PDO $pdo): void
 }
 
 const ROLES = ['admin' => 'Správce', 'viewer' => 'Přehled a účtenky'];
+/** Události z automatu: tisk, AI úprava, vyfocení, odeslání e-mailem (+ "ping" = jen test spojení). */
+const EVENT_TYPES = ['print', 'ai', 'photo', 'email'];
 
 // ---------------------------------------------------------------- nastavení
 
@@ -368,6 +370,22 @@ function parse_price(string $s): ?float
 function current_price(): float
 {
     return parse_price(setting('price')) ?? 0.0;
+}
+
+/**
+ * Pravidla pro automaty (styles-api.php → `config`): max. kopií (null = řídí automat sám) a ceny
+ * pro samoobslužný režim – fotka (= cena tisku), AI fotka, poslání e-mailem.
+ */
+function kiosk_config(): array
+{
+    $max = (int)setting('max_copies');
+    return [
+        'max_copies' => $max >= 1 ? min($max, 20) : null,
+        'price_photo' => current_price(),
+        'price_ai' => parse_price(setting('price_ai')) ?? 0.0,
+        'price_email' => parse_price(setting('price_email')) ?? 0.0,
+        'currency' => setting('currency'),
+    ];
 }
 
 /** IP klienta; za reverzní proxy (TRUSTED_PROXY v config.php) první adresa z X-Forwarded-For. */

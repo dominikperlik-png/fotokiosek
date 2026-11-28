@@ -104,6 +104,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($_POST) && (int)($_SERVER['CO
                 }
                 db()->commit();
             }
+        } elseif ($action === 'reorder') {
+            // Přetažení myší / prstem: celé nové pořadí id oddělených čárkou (musí to být přesně všechny styly).
+            $order = array_values(array_filter(explode(',', post_str('order')), 'strlen'));
+            $ids = array_column(all_styles(), 'id');
+            $sorted = $order;
+            sort($sorted, SORT_STRING);
+            sort($ids, SORT_STRING);
+            if ($sorted !== $ids) {
+                throw new RuntimeException('Pořadí se mezitím změnilo (jiné okno?). Načti stránku a zkus to znovu.');
+            }
+            $upd = db()->prepare('UPDATE styles SET sort = ? WHERE id = ?');
+            db()->beginTransaction();
+            foreach ($order as $n => $sid) {
+                $upd->execute([($n + 1) * 10, $sid]);
+            }
+            db()->commit();
+            $msg = 'Pořadí uloženo. Automaty ho převezmou při další synchronizaci.';
         } elseif ($action === 'upload_thumb') {
             $editId = $style['id'];
             set_style_thumb($style['id'], store_thumb($style['id'], uploaded_bytes('image')));
@@ -219,9 +236,11 @@ page_header('AI styly', $user);
 
 <section class="card">
     <div class="receipt-cta"><h2>Styly (<?= count($styles) ?>)</h2><a href="styles.php?new=1#edit">+ Přidat styl</a></div>
-    <div class="style-grid">
+    <?php if (count($styles) > 1): ?><p class="muted">Pořadí = pořadí na automatu. Přetáhni kartu za úchyt ⠿ (myší i prstem), nebo použij šipky.</p><?php endif; ?>
+    <form method="post" id="reorder-form" hidden><?= csrf_field() ?><input type="hidden" name="action" value="reorder"><input type="hidden" name="order" value=""></form>
+    <div class="style-grid" data-reorder="reorder-form">
         <?php foreach ($styles as $n => $s): ?>
-        <div class="style-card">
+        <div class="style-card" data-id="<?= h($s['id']) ?>">
             <a href="styles.php?edit=<?= h(rawurlencode($s['id'])) ?>#edit" class="style-img">
                 <?php if ($s['thumb']): ?>
                     <img src="<?= h(thumb_url($s['thumb'])) ?>" alt="" loading="lazy">
@@ -231,6 +250,7 @@ page_header('AI styly', $user);
             </a>
             <div class="style-name"><?= h($s['name']) ?></div>
             <div class="style-actions">
+                <span class="drag-handle" title="Přetáhni pro změnu pořadí" aria-hidden="true">⠿</span>
                 <a href="styles.php?edit=<?= h(rawurlencode($s['id'])) ?>#edit">Upravit</a>
                 <form method="post" class="inline"><?= csrf_field() ?><input type="hidden" name="action" value="move"><input type="hidden" name="id" value="<?= h($s['id']) ?>"><input type="hidden" name="dir" value="up">
                     <button class="link" title="Posunout dopředu" <?= $n === 0 ? 'disabled' : '' ?>>↑</button></form>
@@ -284,4 +304,5 @@ page_header('AI styly', $user);
 <script src="assets/confirm.js"></script>
 <script src="assets/busy.js"></script>
 <script src="assets/counter.js"></script>
+<script src="assets/reorder.js"></script>
 <?php page_footer();

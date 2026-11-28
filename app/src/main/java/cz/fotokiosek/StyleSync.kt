@@ -85,6 +85,28 @@ object StyleSync {
         }.distinctBy { it.id }
     }
 
+    /** Pravidla z webu: max. kopií (0 = neurčuje) a ceny (text čísla; "" = neplatná/neznámá → neprodávat) pro samoobslužný režim. */
+    data class WebConfig(val maxCopies: Int, val pricePhoto: String, val priceAi: String, val priceEmail: String, val currency: String)
+
+    /** `config` z odpovědi styles-api.php; null = server ho neposílá (starší web). */
+    fun parseConfig(json: String): WebConfig? {
+        val c = JSONObject(json).optJSONObject("config") ?: return null
+        fun price(key: String): String {
+            val v = c.optDouble(key, Double.NaN)
+            if (v.isNaN() || v < 0 || v > 100_000) return ""
+            val d = java.math.BigDecimal.valueOf(v).setScale(2, java.math.RoundingMode.HALF_UP)
+            // Starší Android vrací u nuly ze stripTrailingZeros „0.00“.
+            return if (d.signum() == 0) "0" else d.stripTrailingZeros().toPlainString()
+        }
+        return WebConfig(
+            maxCopies = if (c.isNull("max_copies")) 0 else c.optInt("max_copies", 0).coerceIn(0, 20),
+            pricePhoto = price("price_photo"),
+            priceAi = price("price_ai"),
+            priceEmail = price("price_email"),
+            currency = (if (c.isNull("currency")) "" else c.optString("currency")).trim().take(10).ifEmpty { "Kč" },
+        )
+    }
+
     /** Stáhne knihovnu. Vrací (ok, zpráva pro správce). Volat mimo hlavní vlákno. */
     fun sync(context: Context, settings: KioskSettings, reportUrl: String, token: String): Pair<Boolean, String> = synchronized(lock) {
         val result = try {
@@ -102,6 +124,14 @@ object StyleSync {
             }
             val json = String(body, Charsets.UTF_8)
             val styles = runCatching { parse(json, null) }.getOrElse { throw SyncException("Server poslal neplatná data.") }
+            // Pravidla z webu hned (nezávisle na náhledech); starší web je neposílá → nechat, jak jsou.
+            parseConfig(json)?.let { c ->
+                settings.webMaxCopies = c.maxCopies
+                settings.pricePhoto = c.pricePhoto
+                settings.priceAi = c.priceAi
+                settings.priceEmail = c.priceEmail
+                settings.priceCurrency = c.currency
+            }
             val dir = dir(context).apply { mkdirs() }
             var downloaded = 0
             styles.mapNotNull { it.thumb }.distinct().forEach { name ->

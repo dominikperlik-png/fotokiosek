@@ -1,5 +1,5 @@
 <?php
-/** Nastavení: cena a údaje na účtenku, automaty (tokeny), změna hesla. */
+/** Nastavení: cena a údaje na účtenku, pravidla pro automaty (max. kopií, ceny), automaty (tokeny), změna hesla. */
 declare(strict_types=1);
 require __DIR__ . '/inc/bootstrap.php';
 $user = require_login();
@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     check_csrf();
     $action = (string)($_POST['action'] ?? '');
 
-    if (in_array($action, ['billing', 'add_device', 'revoke_device'], true) && !is_admin($user)) {
+    if (in_array($action, ['billing', 'kiosk', 'add_device', 'revoke_device'], true) && !is_admin($user)) {
         http_response_code(403);
         exit('Jen pro správce.');
     }
@@ -27,6 +27,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 set_setting($key, clip(trim((string)($_POST[$key] ?? '')), $len));
             }
             $msg = 'Uloženo.';
+        }
+    } elseif ($action === 'kiosk') {
+        $max = trim(post_str('max_copies'));
+        $prices = [];
+        foreach (['price_ai', 'price_email'] as $key) {
+            $v = trim(post_str($key));
+            $p = $v === '' ? 0.0 : parse_price($v);
+            if ($p === null || $p < 0 || $p > 100000) {
+                $err = 'Ceny musí být čísla (např. 50 nebo 49,90), prázdné = zdarma.';
+                break;
+            }
+            $prices[$key] = $v === '' ? '' : (string)round($p, 2);
+        }
+        if ($err === '' && $max !== '' && (!ctype_digit($max) || (int)$max < 1 || (int)$max > 20)) {
+            $err = 'Max. počet kopií musí být 1 až 20 (prázdné = řídí automat).';
+        }
+        if ($err === '') {
+            set_setting('max_copies', $max === '' ? '' : (string)(int)$max);
+            foreach ($prices as $key => $p) {
+                set_setting($key, $p);
+            }
+            $msg = 'Uloženo. Automaty si to stáhnou při další synchronizaci (po startu, každých 6 h, nebo tlačítkem Synchronizovat styly).';
         }
     } elseif ($action === 'add_device') {
         $name = clip(trim((string)($_POST['name'] ?? '')), 60);
@@ -105,6 +127,21 @@ page_header('Nastavení', $user);
         <button class="primary">Uložit</button>
     </form>
     <p class="muted">Změna ceny platí pro fotky vytištěné od teď – starší tisky i vystavené účtenky si drží cenu z doby tisku.</p>
+</section>
+
+<section class="card">
+    <h2>Samoobslužný režim a pravidla pro automaty</h2>
+    <form method="post" class="grid">
+        <?= csrf_field() ?><input type="hidden" name="action" value="kiosk">
+        <label>Max. počet kopií jednoho tisku (1–20, prázdné = nastavení v automatu)
+            <input name="max_copies" value="<?= h(setting('max_copies')) ?>" inputmode="numeric"></label>
+        <label>Cena standardní fotky (tisk) <input value="<?= h(money(current_price())) ?>" disabled></label>
+        <label>Cena AI fotky (prázdné = zdarma) <input name="price_ai" value="<?= h(setting('price_ai')) ?>" inputmode="decimal"></label>
+        <label>Cena za poslání na e-mail (prázdné = zdarma) <input name="price_email" value="<?= h(setting('price_email')) ?>" inputmode="decimal"></label>
+        <button class="primary">Uložit</button>
+    </form>
+    <p class="muted">Cena standardní fotky je cena za 1 vytištěnou fotku nahoře. Ceny platí v samoobslužném režimu automatu
+        (zákazník zaplatí terminálem); bez něj se jen počítá tržba za tisk. Automat si pravidla stáhne spolu s AI styly.</p>
 </section>
 
 <section class="card">

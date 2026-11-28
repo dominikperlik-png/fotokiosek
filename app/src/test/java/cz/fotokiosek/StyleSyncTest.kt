@@ -39,4 +39,18 @@ class StyleSyncTest {
         assertEquals(File(dir, "comic-9f3e1a2b.jpg").path, StyleSync.parse(json, dir)[0].thumb)
         dir.deleteRecursively()
     }
+
+    @Test
+    fun parsesWebConfig() {
+        assertNull("starší web bez config", StyleSync.parseConfig("""{"ok":true,"styles":[]}"""))
+        val c = StyleSync.parseConfig(
+            """{"ok":true,"styles":[],"config":{"max_copies":4,"price_photo":100,"price_ai":49.9,"price_email":0,"currency":"Kč"}}""",
+        )!!
+        assertEquals(StyleSync.WebConfig(4, "100", "49.9", "0", "Kč"), c)
+        val none = StyleSync.parseConfig(
+            """{"config":{"max_copies":null,"price_photo":-5,"price_ai":"abc","currency":""}}""",
+        )!!
+        assertEquals(StyleSync.WebConfig(0, "", "", "", "Kč"), none)
+        assertEquals(20, StyleSync.parseConfig("""{"config":{"max_copies":99}}""")!!.maxCopies)
+    }
 }
