@@ -67,6 +67,14 @@ object PhotoStore {
 
     fun load(file: File): Bitmap? = BitmapFactory.decodeFile(file.path)
 
+    /** Smazání jedné fotky z galerie (jen soubor přímo ve složce galerie). */
+    fun deleteFromGallery(context: Context, file: File): Boolean {
+        if (file.parentFile?.canonicalPath != galleryDir(context).canonicalPath) return false
+        val ok = file.delete()
+        if (ok) AppLog.i("Galerie", "Fotka ${file.name} smazána") else AppLog.w("Galerie", "Fotku ${file.name} nešlo smazat")
+        return ok
+    }
+
     /** Vypnutí galerie: smazat všechny fotky v ní (fotky ve frontě e-mailů zůstanou). */
     fun clearGallery(context: Context) {
         val failed = galleryDir(context).listFiles().orEmpty().count { !it.delete() }

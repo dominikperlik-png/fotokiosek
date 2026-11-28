@@ -13,6 +13,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -506,652 +507,662 @@ fun AdminScreen(
             OutlinedButton(onClick = { confirmResetPrints = true }) { Text("Vynulovat počítadlo vytištěných fotek") }
 
             // ---------------------------------------------------------------- Kamera
-            Section("Kamera")
-            Text("Zdroj obrazu", fontSize = 20.sp)
-            ChoiceRow(
-                listOf("auto" to "Automaticky", "android" to "Kamera Androidu", "canon" to "Zrcadlovka Canon"),
-                cameraSource,
-            ) { cameraSource = it }
+            Section("Kamera") {
+                Text("Zdroj obrazu", fontSize = 20.sp)
+                ChoiceRow(
+                    listOf("auto" to "Automaticky", "android" to "Kamera Androidu", "canon" to "Zrcadlovka Canon"),
+                    cameraSource,
+                ) { cameraSource = it }
 
-            Row(
-                Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier.size(18.dp).clip(CircleShape)
-                        .background(if (camera.canonConnected) Color(0xFF43A047) else Color(0xFFE53935))
-                )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Zrcadlovka: ${camera.canonStatus}", fontSize = 18.sp)
-                    if (!camera.canonConnected) {
+                Row(
+                    Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(18.dp).clip(CircleShape)
+                            .background(if (camera.canonConnected) Color(0xFF43A047) else Color(0xFFE53935))
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Zrcadlovka: ${camera.canonStatus}", fontSize = 18.sp)
+                        if (!camera.canonConnected) {
+                            Text(
+                                "Fotoaparát zapni, dej do režimu foto (M/Av/Tv/P), v menu vypni Wi-Fi a automatické vypínání a připoj USB kabelem.",
+                                fontSize = 15.sp,
+                                color = Color.White.copy(alpha = 0.6f),
+                            )
+                        }
+                    }
+                    OutlinedButton(onClick = { save(); camera.reconnect() }) { Text("Znovu připojit") }
+                }
+
+                if (cameraSource != "canon") {
+                    Text("Kamera Androidu", fontSize = 20.sp)
+                    if (cameras.isEmpty()) {
+                        Text("Android nevidí žádnou kameru. Pošli výstup diagnostiky (diagnostika.txt).", color = Color(0xFFFF6E6E))
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().clickable { cameraId = "" },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = cameraId.isEmpty(), onClick = { cameraId = "" })
+                        Text("Automaticky (USB webkamera přednostně) – teď: ${camera.android.activeId.ifEmpty { "?" }}", fontSize = 20.sp)
+                    }
+                    if (usbWebcams.isNotEmpty()) {
                         Text(
-                            "Fotoaparát zapni, dej do režimu foto (M/Av/Tv/P), v menu vypni Wi-Fi a automatické vypínání a připoj USB kabelem.",
+                            "Připojená USB webkamera: ${usbWebcams.joinToString()}" +
+                                if (androidSeesExternal) " ✔ Android ji vidí."
+                                else "\n✘ Android ji ale jako kameru nenabízí. Zkus „Restartovat aplikaci“ (Systém). Když ani pak nebude v seznamu jako „externí USB“, systém tohoto automatu USB kamery nepodporuje – pošli mi diagnostika.txt.",
+                            fontSize = 16.sp,
+                            color = if (androidSeesExternal) Color(0xFF81C784) else Color(0xFFFF6E6E),
+                        )
+                    }
+                    cameras.forEach { (id, label) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { cameraId = id },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = id == cameraId, onClick = { cameraId = id })
+                            Text(label, fontSize = 20.sp)
+                        }
+                    }
+                }
+                if (cameraSource != "android") {
+                    Text("Otočení obrazu zrcadlovky", fontSize = 20.sp)
+                    ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, canonRotation.toString()) { canonRotation = it.toInt() }
+                    SwitchRow("Ukládat fotky i na SD kartu ve fotoaparátu", canonSaveToCard) { canonSaveToCard = it }
+                    Text(
+                        "Vypnuto = fotka jde z paměti fotoaparátu rovnou do aplikace (nejrychlejší, karta není potřeba). " +
+                            "Zapnuto = zůstane i záloha na kartě, ale přenos trvá déle. Po změně klepni na „Znovu připojit“.",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+                if (cameraSource != "canon") {
+                    Text("Otočení živého náhledu vestavěné kamery", fontSize = 20.sp)
+                    ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, previewRotation.toString()) {
+                        previewRotation = it.toInt()
+                        camera.android.previewRotation = previewRotation // hned vidět za menu po zavření
+                    }
+                    Text(
+                        "Otáčí jen obraz na obrazovce před focením, fotka zůstává, jak je. Vyber hodnotu, při které je náhled stejně jako výsledná fotka. USB webkamery se neotáčí.",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                }
+                SwitchRow("Zrcadlit (jako zrcadlo)", mirror) { mirror = it }
+                SwitchRow("Náhled přes celou obrazovku (fotka se ořízne stejně)", fill) { fill = it }
+                Field("Předstih spouště v ms (0–900)", shutterLead, number = true) { shutterLead = it.filter(Char::isDigit) }
+                Text(
+                    "Spoušť se pustí o tolik dřív, aby fotka vznikla přesně s nápisem „Úsměv!“." +
+                        (camera.android.lastLatencyMs.takeIf { it > 0 }?.let { " Poslední naměřená prodleva kamery: $it ms." } ?: ""),
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+            }
+
+            // ---------------------------------------------------------------- Kiosek
+            Section("Kiosek") {
+                Field("Uvítací text", welcome) { welcome = it }
+                Field("Odpočet (sekundy)", countdown, number = true) { countdown = it }
+                Field("Návrat na úvod po nečinnosti (sekundy)", idleTimeout, number = true) { idleTimeout = it }
+                Field("Mazat fotky z kiosku po (dnech)", keepDays, number = true) { keepDays = it }
+
+                Text("Změna PINu správce", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Field("Nový PIN (4–8 číslic)", newPin, number = true, password = true) { newPin = it.filter(Char::isDigit).take(8); pinMessage = null }
+                Field("Nový PIN znovu", newPin2, number = true, password = true) { newPin2 = it.filter(Char::isDigit).take(8); pinMessage = null }
+                Button(onClick = {
+                    pinMessage = when {
+                        newPin.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
+                        newPin != newPin2 -> "PINy se neshodují." to false
+                        newPin == settings.pin -> "Tohle už je současný PIN." to false
+                        newPin == settings.galleryPin -> "Tenhle PIN má galerie – PIN správce musí být jiný." to false
+                        !settings.savePin(newPin) -> "PIN se nepodařilo uložit, zkus to znovu." to false
+                        else -> {
+                            AppLog.i("Správa", "PIN správce změněn")
+                            newPin = ""
+                            newPin2 = ""
+                            "PIN byl úspěšně změněn ✔ Platí hned – při příštím vstupu do menu zadej nový PIN." to true
+                        }
+                    }
+                }) { Text("Změnit PIN") }
+                pinMessage?.let { (text, ok) ->
+                    Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
+                }
+
+                Text("Galerie fotek", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                SwitchRow("Galerie – ukládat fotky a ukázat tlačítko „Galerie“ na úvodní obrazovce", galleryOn) { galleryOn = it }
+                Text(
+                    "Z galerie jde kdykoli znovu vytisknout nebo poslat starší fotku. Fotky se mažou podle „Mazat fotky po“. " +
+                        "Vypnutím galerie (a Uložit) se smažou i všechny fotky v ní.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                if (galleryOn) {
+                    SwitchRow("Vyžadovat heslo pro galerii", galleryRequirePin) { galleryRequirePin = it }
+                    if (!galleryRequirePin) {
+                        Text(
+                            "⚠ Bez hesla otevře galerii každý zákazník – uvidí fotky všech lidí a může si je vytisknout nebo poslat na svůj e-mail.",
+                            fontSize = 16.sp,
+                            color = Color(0xFFFF6E6E),
+                        )
+                    } else {
+                        Text(
+                            if (hasGalleryPin) "Galerii otevře vlastní PIN galerie nebo PIN správce." else "Galerii otevře PIN správce (vlastní PIN galerie není nastavený).",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                        Field("Vlastní PIN galerie pro obsluhu (nepovinné, 4–8 číslic)", galleryPinNew, number = true, password = true) {
+                            galleryPinNew = it.filter(Char::isDigit).take(8); galleryMessage = null
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(onClick = {
+                                galleryMessage = when {
+                                    galleryPinNew.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
+                                    galleryPinNew == settings.pin -> "PIN galerie musí být jiný než PIN správce." to false
+                                    !settings.saveGalleryPin(galleryPinNew) -> "PIN se nepodařilo uložit, zkus to znovu." to false
+                                    else -> {
+                                        AppLog.i("Správa", "PIN galerie nastaven")
+                                        galleryPinNew = ""
+                                        hasGalleryPin = true
+                                        "PIN galerie uložen ✔" to true
+                                    }
+                                }
+                            }) { Text(if (hasGalleryPin) "Změnit PIN galerie" else "Nastavit PIN galerie") }
+                            if (hasGalleryPin) {
+                                OutlinedButton(onClick = {
+                                    settings.saveGalleryPin("")
+                                    hasGalleryPin = false
+                                    AppLog.i("Správa", "Vlastní PIN galerie zrušen")
+                                    galleryMessage = "Vlastní PIN zrušen – galerii otevře PIN správce." to true
+                                }) { Text("Zrušit vlastní PIN") }
+                            }
+                        }
+                    }
+                }
+                galleryMessage?.let { (text, ok) ->
+                    Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
+                }
+            }
+
+            // ---------------------------------------------------------------- AI
+            Section("AI & API nastavení") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (aiOn) Accent.copy(alpha = 0.25f) else KeyColor)
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("AI FOTOKIOSEK", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Accent)
+                        Text("Po vyfocení si zákazník vybere AI styl (Gemini).", fontSize = 16.sp)
+                    }
+                    Switch(checked = aiOn, onCheckedChange = { aiOn = it })
+                }
+                if (aiOn && apiKey.isBlank()) {
+                    Text("⚠ Bez API klíče se AI nespustí – zákazník uvidí běžnou fotku.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
+                }
+                SecretField("Gemini API klíč", apiKey) { apiKey = it.trim(); aiTest = null }
+                OutlinedButton(onClick = { qrFor = "gemini" }) { Text("📷 Načíst klíč z QR kódu") }
+                Text("Model", fontSize = 20.sp)
+                Box {
+                    OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.weight(1f)) {
+                            Text(aiModel.ifBlank { GeminiClient.DEFAULT_MODEL }, fontSize = 20.sp)
+                            GeminiClient.MODELS.firstOrNull { it.id == aiModel.trim() }?.let {
+                                Text(it.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                            } ?: Text("vlastní název modelu", fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                        }
+                        Text("▾", fontSize = 26.sp)
+                    }
+                    DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        GeminiClient.MODELS.forEach { m ->
+                            DropdownMenuItem(
+                                text = {
+                                    Column(Modifier.padding(vertical = 6.dp)) {
+                                        Text(m.id, fontSize = 20.sp, fontWeight = if (m.id == aiModel.trim()) FontWeight.Bold else FontWeight.Normal)
+                                        Text(m.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.65f))
+                                    }
+                                },
+                                onClick = { aiModel = m.id; modelMenu = false; aiTest = null },
+                            )
+                        }
+                    }
+                }
+                Field("Nebo napiš název modelu ručně (když Google vydá nový)", aiModel) { aiModel = it; aiTest = null }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = {
+                        aiTest = "Zkouším spojení…"
+                        val key = apiKey
+                        val model = aiModel
+                        scope.launch {
+                            val r = withContext(Dispatchers.IO) { GeminiClient.test(key, model) }
+                            aiTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                            if (r.ok) save() // funguje → rovnou uložit
+                        }
+                    }) { Text("Otestovat API připojení") }
+                }
+                aiTest?.let { Text(it, fontSize = 18.sp) }
+                Field("Max. AI pokusů na jednu fotku (1–20)", aiMaxTries, number = true) { aiMaxTries = it.filter(Char::isDigit).take(2) }
+                Text(
+                    "Klíč z Google AI Studio musí mít zapnuté placené účtování – generování obrázků zdarma není. " +
+                        "Každý pokus se platí. Fotky se posílají do Google; na placené úrovni je Google nepoužívá ke zlepšování svých produktů. " +
+                        "Doporučená cedulka na automatu: „Fotky upravuje AI od Google.“",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+
+                Text("AI styly", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Styly (název, prompt, náhled) se spravují na webu účetnictví → AI styly; automat si je stahuje sám " +
+                        "(po startu a každých 6 h). Tady zapni, které zákazník uvidí. Nový styl z webu je vypnutý.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Button(enabled = !styleSyncing, onClick = {
+                        styleSyncing = true
+                        styleSyncInfo = "Synchronizuji…"
+                        val url = reportUrl
+                        val token = reportToken
+                        scope.launch {
+                            val (_, msg) = withContext(Dispatchers.IO) { StyleSync.sync(context.applicationContext, settings, url, token) }
+                            styleSyncInfo = msg
+                            styleSyncing = false
+                        }
+                    }) { Text("🔄 Synchronizovat styly") }
+                }
+                if (styleSyncInfo.isNotBlank()) Text(styleSyncInfo, fontSize = 16.sp)
+                if (StyleSync.stylesUrl(reportUrl) == null) {
+                    Text("Bez webu účetnictví se nabízejí přibalené styly (bez náhledů).", fontSize = 15.sp, color = Color.White.copy(alpha = 0.6f))
+                }
+                aiStyleList.forEach { style ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            aiStylesOn = if (style.id in aiStylesOn) aiStylesOn - style.id else aiStylesOn + style.id
+                        }.padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        StyleThumb(style, Modifier.width(120.dp).height(80.dp).clip(RoundedCornerShape(10.dp)), iconSize = 36)
+                        Text("  ${style.name}", fontSize = 20.sp, modifier = Modifier.weight(1f))
+                        Switch(checked = style.id in aiStylesOn, onCheckedChange = { on ->
+                            aiStylesOn = if (on) aiStylesOn + style.id else aiStylesOn - style.id
+                        })
+                    }
+                }
+                if (aiOn && aiStyleList.none { it.id in aiStylesOn }) {
+                    Text("⚠ Není zapnutý žádný styl – zákazník AI nenabídne.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
+                }
+            }
+
+            // ---------------------------------------------------------------- Logo
+            Section("Logo") {
+                val logoVersion = LogoStore.version
+                val hasCustom = remember(logoVersion) { LogoStore.exists(context) }
+                val choices = buildList {
+                    add("none" to "Bez loga")
+                    LogoStore.builtins.forEach { add(it.id to it.label) }
+                    if (hasCustom) add("custom" to "Vlastní (nahrané)")
+                }
+                Text("Vyber logo (projeví se hned na obrazovce i na dalších fotkách)", fontSize = 18.sp)
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    choices.forEach { (id, label) ->
+                        // Načíst na pozadí a zmenšené – velké PNG by menu na pomalé desce zaseklo.
+                        val thumb = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, id, logoVersion) {
+                            value = withContext(Dispatchers.IO) { LogoStore.thumbnail(context, id)?.asImageBitmap() }
+                        }.value
+                        val selected = (if (logoChoice == "custom" && !hasCustom) "none" else logoChoice) == id
+                        Column(
+                            Modifier
+                                .width(170.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (selected) Accent else KeyColor)
+                                .clickable {
+                                    logoChoice = id
+                                    LogoStore.select(context, id)
+                                }
+                                .padding(10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                Modifier.fillMaxWidth().height(90.dp).background(Color(0xFF555555), RoundedCornerShape(8.dp)).padding(6.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (thumb != null) {
+                                    Image(bitmap = thumb, contentDescription = label, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                                } else {
+                                    Text("—", fontSize = 28.sp, color = Color.White.copy(alpha = 0.6f))
+                                }
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(label, fontSize = 16.sp, color = if (selected) Color.Black else Color.White, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = {
+                        logoMessage = null
+                        pickLogo { uri ->
+                            if (uri != null) {
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { LogoStore.import(context, uri) }
+                                    r.onSuccess { logoChoice = "custom" }
+                                    logoMessage = r.fold({ "Vlastní logo uloženo a vybráno ✔" }, { "Logo nejde načíst: ${it.message}" })
+                                }
+                            }
+                        }
+                    }) { Text(if (hasCustom) "Nahradit vlastní logo" else "Nahrát vlastní logo") }
+                    if (hasCustom) {
+                        OutlinedButton(onClick = {
+                            LogoStore.delete(context)
+                            if (logoChoice == "custom") logoChoice = "none"
+                            logoMessage = "Vlastní logo smazáno"
+                        }) { Text("Smazat vlastní logo") }
+                    }
+                }
+                Text(
+                    "PNG s průhledností, JPG nebo SVG. Otevře se výběr souboru Androidu (např. z USB flashky nebo Stažených souborů). Logo jde nahrát i instalací: soubor logo.png vedle instalace.ps1.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                logoMessage?.let { Text(it, fontSize = 18.sp) }
+                SwitchRow("Logo na úvodní obrazovce", logoOnScreen) { logoOnScreen = it }
+                SwitchRow("Logo na fotce (e-mail i tisk)", logoOnPhoto) { logoOnPhoto = it }
+                if (logoOnPhoto) {
+                    Text("Umístění na fotce", fontSize = 20.sp)
+                    ChoiceRow(
+                        listOf(
+                            "TL" to "vlevo nahoře", "TC" to "nahoře uprostřed", "TR" to "vpravo nahoře",
+                            "BL" to "vlevo dole", "BC" to "dole uprostřed", "BR" to "vpravo dole",
+                        ),
+                        logoPosition,
+                    ) { logoPosition = it }
+                    Field("Velikost loga (% šířky fotky, 5–60)", logoSize, number = true) { logoSize = it.filter(Char::isDigit) }
+                }
+            }
+
+            // ---------------------------------------------------------------- Tisk
+            Section("Tisk") {
+                SwitchRow("Povolit tisk (tlačítko „Vytisknout“ u fotky)", printEnabled) { printEnabled = it }
+                if (printEnabled) {
+                    Text("Model tiskárny (formát vždy 10×15 cm, 300 DPI, bez okrajů)", fontSize = 20.sp)
+                    ChoiceRow(
+                        listOf("selphy_cp1500" to "Canon SELPHY CP1500", "dnp_qw410" to "DNP DP-QW410", "generic" to "Obecná 10×15"),
+                        printerModel,
+                    ) { printerModel = it }
+                    Text(
+                        when (printerModel) {
+                            "selphy_cp1500" -> "SELPHY: papír KP-108IN (100×148 mm). Připoj ji USB kabelem a zvol „USB – Canon SELPHY“, nebo ji připoj k Wi-Fi a zvol „Síťová tiskárna“. Obojí tiskne hned, bez dialogů."
+                            "dnp_qw410" -> "DNP DP-QW410 má jen USB a Android pro ni nemá ovladač. Funguje přes tiskový server (např. Raspberry Pi s CUPS) jako „Síťová tiskárna“, nebo přes tiskovou službu Androidu, pokud ji výrobce nabízí."
+                            else -> "Fotka se připraví jako 4×6″ (1800×1200 px) a vyplní celý papír."
+                        },
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.6f),
+                    )
+                    if (usbPrinters.isNotEmpty()) {
+                        Text(
+                            "Přes USB je připojená tiskárna: ${usbPrinters.joinToString()}. Android na ni umí tisknout jen přes tiskovou službu – zvol „Systémový tisk Androidu“.",
+                            fontSize = 16.sp,
+                            color = Accent,
+                        )
+                    }
+                    if (selphyName != null && printMode != "selphy_usb") {
+                        Text(
+                            "Přes USB je připojená $selphyName – pro tisk přes kabel zvol „USB – Canon SELPHY“.",
+                            fontSize = 16.sp,
+                            color = Accent,
+                        )
+                    }
+                    ChoiceRow(
+                        listOf(
+                            "ipp" to "Síťová tiskárna (doporučeno)",
+                            "selphy_usb" to "USB – Canon SELPHY",
+                            "system" to "Systémový tisk Androidu",
+                        ),
+                        printMode,
+                    ) { printMode = it }
+                    if (printMode == "selphy_usb") {
+                        Text(
+                            "SELPHY připoj USB kabelem do automatu a zapni ji. Vlož papír 10×15 (KP-108IN). " +
+                                "Poprvé dej „Otestovat tiskárnu“ a na obrazovce povol přístup: zaškrtni „Použít ve výchozím nastavení pro toto zařízení USB“ (nebo „Vždy“) a dej OK – jinak se povolení po vypnutí tiskárny ztratí. Pak test zopakuj.",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                        OutlinedButton(onClick = {
+                            usbDevices = SelphyUsb.describeAll(context)
+                            val device = SelphyUsb.find(context)
+                            selphyName = device?.let { SelphyUsb.modelName(it) }
+                            if (device != null && !SelphyUsb.hasPermission(context, device)) {
+                                printerTest = "Povol na obrazovce přístup k tiskárně (zaškrtni „Použít ve výchozím nastavení…“ / „Vždy“) a dej „Otestovat tiskárnu“ znovu."
+                                SelphyUsb.requestPermission(activity, device)
+                            } else {
+                                printerTest = "Zkouším tiskárnu…"
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { SelphyUsb.test(context) }
+                                    printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                                }
+                            }
+                        }) { Text("Otestovat tiskárnu") }
+                        SelphyUsb.problem?.let { Text("⚠ Tiskárna čeká na obsluhu: $it", fontSize = 18.sp, color = Accent) }
+                        printerTest?.let { Text(it, fontSize = 18.sp) }
+                        Text(
+                            "USB zařízení, která automat vidí: " + usbDevices.joinToString("; ").ifEmpty { "žádné" },
+                            fontSize = 14.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                    } else if (printMode == "ipp") {
+                        Text(
+                            "Tiskárna musí být ve stejné síti jako automat (Wi-Fi / kabel). Tiskne se rovnou, bez dialogů.",
+                            fontSize = 15.sp,
+                            color = Color.White.copy(alpha = 0.6f),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(onClick = {
+                                foundPrinters.clear()
+                                searching = true
+                                discovery.start { p ->
+                                    scope.launch(Dispatchers.Main) { if (foundPrinters.none { it.url == p.url }) foundPrinters += p }
+                                }
+                                scope.launch {
+                                    delay(8000)
+                                    discovery.stop()
+                                    searching = false
+                                }
+                            }, enabled = !searching) { Text(if (searching) "Hledám…" else "Vyhledat tiskárny") }
+                            OutlinedButton(onClick = {
+                                printerTest = "Zkouším tiskárnu…"
+                                val url = IppClient.normalize(printerUrl)
+                                scope.launch {
+                                    val r = withContext(Dispatchers.IO) { IppClient.test(url) }
+                                    printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
+                                }
+                            }, enabled = printerUrl.isNotBlank()) { Text("Otestovat tiskárnu") }
+                        }
+                        if (searching && foundPrinters.isEmpty()) Text("Hledám tiskárny v síti…", fontSize = 16.sp)
+                        if (!searching && foundPrinters.isEmpty() && printerName.isEmpty() && printerUrl.isEmpty()) {
+                            Text("Žádnou tiskárnu jsem zatím nenašel – zadej její IP adresu ručně.", fontSize = 16.sp)
+                        }
+                        foundPrinters.forEach { p ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { printerUrl = p.url; printerName = p.name },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = printerUrl == p.url, onClick = { printerUrl = p.url; printerName = p.name })
+                                Column {
+                                    Text(p.name, fontSize = 20.sp)
+                                    Text(p.url, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
+                                }
+                            }
+                        }
+                        if (printerName.isNotEmpty()) Text("Vybraná tiskárna: $printerName", fontSize = 18.sp)
+                        Field("Adresa tiskárny (IP nebo ipp://…)", printerUrl) { printerUrl = it; printerName = "" }
+                        printerTest?.let { Text(it, fontSize = 18.sp) }
+                    } else {
+                        Text(
+                            "Otevře se tiskový dialog Androidu. Tiskárna musí být přidaná přes tiskovou službu (Nastavení Androidu → Tisk, např. Mopria nebo aplikace výrobce tiskárny).",
                             fontSize = 15.sp,
                             color = Color.White.copy(alpha = 0.6f),
                         )
                     }
+                    Field("Max. počet kopií pro zákazníka", printMaxCopies, number = true) { printMaxCopies = it.filter(Char::isDigit) }
                 }
-                OutlinedButton(onClick = { save(); camera.reconnect() }) { Text("Znovu připojit") }
-            }
-
-            if (cameraSource != "canon") {
-                Text("Kamera Androidu", fontSize = 20.sp)
-                if (cameras.isEmpty()) {
-                    Text("Android nevidí žádnou kameru. Pošli výstup diagnostiky (diagnostika.txt).", color = Color(0xFFFF6E6E))
-                }
-                Row(
-                    Modifier.fillMaxWidth().clickable { cameraId = "" },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = cameraId.isEmpty(), onClick = { cameraId = "" })
-                    Text("Automaticky (USB webkamera přednostně) – teď: ${camera.android.activeId.ifEmpty { "?" }}", fontSize = 20.sp)
-                }
-                if (usbWebcams.isNotEmpty()) {
-                    Text(
-                        "Připojená USB webkamera: ${usbWebcams.joinToString()}" +
-                            if (androidSeesExternal) " ✔ Android ji vidí."
-                            else "\n✘ Android ji ale jako kameru nenabízí. Zkus „Restartovat aplikaci“ (Systém). Když ani pak nebude v seznamu jako „externí USB“, systém tohoto automatu USB kamery nepodporuje – pošli mi diagnostika.txt.",
-                        fontSize = 16.sp,
-                        color = if (androidSeesExternal) Color(0xFF81C784) else Color(0xFFFF6E6E),
-                    )
-                }
-                cameras.forEach { (id, label) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable { cameraId = id },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = id == cameraId, onClick = { cameraId = id })
-                        Text(label, fontSize = 20.sp)
-                    }
-                }
-            }
-            if (cameraSource != "android") {
-                Text("Otočení obrazu zrcadlovky", fontSize = 20.sp)
-                ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, canonRotation.toString()) { canonRotation = it.toInt() }
-                SwitchRow("Ukládat fotky i na SD kartu ve fotoaparátu", canonSaveToCard) { canonSaveToCard = it }
-                Text(
-                    "Vypnuto = fotka jde z paměti fotoaparátu rovnou do aplikace (nejrychlejší, karta není potřeba). " +
-                        "Zapnuto = zůstane i záloha na kartě, ale přenos trvá déle. Po změně klepni na „Znovu připojit“.",
-                    fontSize = 15.sp,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-            }
-            if (cameraSource != "canon") {
-                Text("Otočení živého náhledu vestavěné kamery", fontSize = 20.sp)
-                ChoiceRow(listOf(0, 90, 180, 270).map { it.toString() to "$it°" }, previewRotation.toString()) {
-                    previewRotation = it.toInt()
-                    camera.android.previewRotation = previewRotation // hned vidět za menu po zavření
-                }
-                Text(
-                    "Otáčí jen obraz na obrazovce před focením, fotka zůstává, jak je. Vyber hodnotu, při které je náhled stejně jako výsledná fotka. USB webkamery se neotáčí.",
-                    fontSize = 15.sp,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-            }
-            SwitchRow("Zrcadlit (jako zrcadlo)", mirror) { mirror = it }
-            SwitchRow("Náhled přes celou obrazovku (fotka se ořízne stejně)", fill) { fill = it }
-            Field("Předstih spouště v ms (0–900)", shutterLead, number = true) { shutterLead = it.filter(Char::isDigit) }
-            Text(
-                "Spoušť se pustí o tolik dřív, aby fotka vznikla přesně s nápisem „Úsměv!“." +
-                    (camera.android.lastLatencyMs.takeIf { it > 0 }?.let { " Poslední naměřená prodleva kamery: $it ms." } ?: ""),
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-
-            // ---------------------------------------------------------------- Kiosek
-            Section("Kiosek")
-            Field("Uvítací text", welcome) { welcome = it }
-            Field("Odpočet (sekundy)", countdown, number = true) { countdown = it }
-            Field("Návrat na úvod po nečinnosti (sekundy)", idleTimeout, number = true) { idleTimeout = it }
-            Field("Mazat fotky z kiosku po (dnech)", keepDays, number = true) { keepDays = it }
-
-            Text("Změna PINu správce", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Field("Nový PIN (4–8 číslic)", newPin, number = true, password = true) { newPin = it.filter(Char::isDigit).take(8); pinMessage = null }
-            Field("Nový PIN znovu", newPin2, number = true, password = true) { newPin2 = it.filter(Char::isDigit).take(8); pinMessage = null }
-            Button(onClick = {
-                pinMessage = when {
-                    newPin.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
-                    newPin != newPin2 -> "PINy se neshodují." to false
-                    newPin == settings.pin -> "Tohle už je současný PIN." to false
-                    newPin == settings.galleryPin -> "Tenhle PIN má galerie – PIN správce musí být jiný." to false
-                    !settings.savePin(newPin) -> "PIN se nepodařilo uložit, zkus to znovu." to false
-                    else -> {
-                        AppLog.i("Správa", "PIN správce změněn")
-                        newPin = ""
-                        newPin2 = ""
-                        "PIN byl úspěšně změněn ✔ Platí hned – při příštím vstupu do menu zadej nový PIN." to true
-                    }
-                }
-            }) { Text("Změnit PIN") }
-            pinMessage?.let { (text, ok) ->
-                Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
-            }
-
-            Text("Galerie fotek", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            SwitchRow("Galerie – ukládat fotky a ukázat tlačítko „Galerie“ na úvodní obrazovce", galleryOn) { galleryOn = it }
-            Text(
-                "Z galerie jde kdykoli znovu vytisknout nebo poslat starší fotku. Fotky se mažou podle „Mazat fotky po“. " +
-                    "Vypnutím galerie (a Uložit) se smažou i všechny fotky v ní.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            if (galleryOn) {
-                SwitchRow("Vyžadovat heslo pro galerii", galleryRequirePin) { galleryRequirePin = it }
-                if (!galleryRequirePin) {
-                    Text(
-                        "⚠ Bez hesla otevře galerii každý zákazník – uvidí fotky všech lidí a může si je vytisknout nebo poslat na svůj e-mail.",
-                        fontSize = 16.sp,
-                        color = Color(0xFFFF6E6E),
-                    )
-                } else {
-                    Text(
-                        if (hasGalleryPin) "Galerii otevře vlastní PIN galerie nebo PIN správce." else "Galerii otevře PIN správce (vlastní PIN galerie není nastavený).",
-                        fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.6f),
-                    )
-                    Field("Vlastní PIN galerie pro obsluhu (nepovinné, 4–8 číslic)", galleryPinNew, number = true, password = true) {
-                        galleryPinNew = it.filter(Char::isDigit).take(8); galleryMessage = null
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Button(onClick = {
-                            galleryMessage = when {
-                                galleryPinNew.length !in 4..8 -> "PIN musí mít 4 až 8 číslic." to false
-                                galleryPinNew == settings.pin -> "PIN galerie musí být jiný než PIN správce." to false
-                                !settings.saveGalleryPin(galleryPinNew) -> "PIN se nepodařilo uložit, zkus to znovu." to false
-                                else -> {
-                                    AppLog.i("Správa", "PIN galerie nastaven")
-                                    galleryPinNew = ""
-                                    hasGalleryPin = true
-                                    "PIN galerie uložen ✔" to true
-                                }
-                            }
-                        }) { Text(if (hasGalleryPin) "Změnit PIN galerie" else "Nastavit PIN galerie") }
-                        if (hasGalleryPin) {
-                            OutlinedButton(onClick = {
-                                settings.saveGalleryPin("")
-                                hasGalleryPin = false
-                                AppLog.i("Správa", "Vlastní PIN galerie zrušen")
-                                galleryMessage = "Vlastní PIN zrušen – galerii otevře PIN správce." to true
-                            }) { Text("Zrušit vlastní PIN") }
-                        }
-                    }
-                }
-            }
-            galleryMessage?.let { (text, ok) ->
-                Text(text, fontSize = 18.sp, color = if (ok) Color(0xFF81C784) else Color(0xFFFF6E6E))
-            }
-
-            // ---------------------------------------------------------------- AI
-            Section("AI & API nastavení")
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (aiOn) Accent.copy(alpha = 0.25f) else KeyColor)
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("AI FOTOKIOSEK", fontSize = 28.sp, fontWeight = FontWeight.Black, color = Accent)
-                    Text("Po vyfocení si zákazník vybere AI styl (Gemini).", fontSize = 16.sp)
-                }
-                Switch(checked = aiOn, onCheckedChange = { aiOn = it })
-            }
-            if (aiOn && apiKey.isBlank()) {
-                Text("⚠ Bez API klíče se AI nespustí – zákazník uvidí běžnou fotku.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
-            }
-            SecretField("Gemini API klíč", apiKey) { apiKey = it.trim(); aiTest = null }
-            OutlinedButton(onClick = { qrFor = "gemini" }) { Text("📷 Načíst klíč z QR kódu") }
-            Text("Model", fontSize = 20.sp)
-            Box {
-                OutlinedButton(onClick = { modelMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.weight(1f)) {
-                        Text(aiModel.ifBlank { GeminiClient.DEFAULT_MODEL }, fontSize = 20.sp)
-                        GeminiClient.MODELS.firstOrNull { it.id == aiModel.trim() }?.let {
-                            Text(it.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
-                        } ?: Text("vlastní název modelu", fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
-                    }
-                    Text("▾", fontSize = 26.sp)
-                }
-                DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
-                    GeminiClient.MODELS.forEach { m ->
-                        DropdownMenuItem(
-                            text = {
-                                Column(Modifier.padding(vertical = 6.dp)) {
-                                    Text(m.id, fontSize = 20.sp, fontWeight = if (m.id == aiModel.trim()) FontWeight.Bold else FontWeight.Normal)
-                                    Text(m.note, fontSize = 14.sp, color = Color.White.copy(alpha = 0.65f))
-                                }
-                            },
-                            onClick = { aiModel = m.id; modelMenu = false; aiTest = null },
-                        )
-                    }
-                }
-            }
-            Field("Nebo napiš název modelu ručně (když Google vydá nový)", aiModel) { aiModel = it; aiTest = null }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    aiTest = "Zkouším spojení…"
-                    val key = apiKey
-                    val model = aiModel
-                    scope.launch {
-                        val r = withContext(Dispatchers.IO) { GeminiClient.test(key, model) }
-                        aiTest = (if (r.ok) "✔ " else "✘ ") + r.message
-                        if (r.ok) save() // funguje → rovnou uložit
-                    }
-                }) { Text("Otestovat API připojení") }
-            }
-            aiTest?.let { Text(it, fontSize = 18.sp) }
-            Field("Max. AI pokusů na jednu fotku (1–20)", aiMaxTries, number = true) { aiMaxTries = it.filter(Char::isDigit).take(2) }
-            Text(
-                "Klíč z Google AI Studio musí mít zapnuté placené účtování – generování obrázků zdarma není. " +
-                    "Každý pokus se platí. Fotky se posílají do Google; na placené úrovni je Google nepoužívá ke zlepšování svých produktů. " +
-                    "Doporučená cedulka na automatu: „Fotky upravuje AI od Google.“",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-
-            Text("AI styly", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "Styly (název, prompt, náhled) se spravují na webu účetnictví → AI styly; automat si je stahuje sám " +
-                    "(po startu a každých 6 h). Tady zapni, které zákazník uvidí. Nový styl z webu je vypnutý.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(enabled = !styleSyncing, onClick = {
-                    styleSyncing = true
-                    styleSyncInfo = "Synchronizuji…"
-                    val url = reportUrl
-                    val token = reportToken
-                    scope.launch {
-                        val (_, msg) = withContext(Dispatchers.IO) { StyleSync.sync(context.applicationContext, settings, url, token) }
-                        styleSyncInfo = msg
-                        styleSyncing = false
-                    }
-                }) { Text("🔄 Synchronizovat styly") }
-            }
-            if (styleSyncInfo.isNotBlank()) Text(styleSyncInfo, fontSize = 16.sp)
-            if (StyleSync.stylesUrl(reportUrl) == null) {
-                Text("Bez webu účetnictví se nabízejí přibalené styly (bez náhledů).", fontSize = 15.sp, color = Color.White.copy(alpha = 0.6f))
-            }
-            aiStyleList.forEach { style ->
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        aiStylesOn = if (style.id in aiStylesOn) aiStylesOn - style.id else aiStylesOn + style.id
-                    }.padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StyleThumb(style, Modifier.width(120.dp).height(80.dp).clip(RoundedCornerShape(10.dp)), iconSize = 36)
-                    Text("  ${style.name}", fontSize = 20.sp, modifier = Modifier.weight(1f))
-                    Switch(checked = style.id in aiStylesOn, onCheckedChange = { on ->
-                        aiStylesOn = if (on) aiStylesOn + style.id else aiStylesOn - style.id
-                    })
-                }
-            }
-            if (aiOn && aiStyleList.none { it.id in aiStylesOn }) {
-                Text("⚠ Není zapnutý žádný styl – zákazník AI nenabídne.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
-            }
-
-            // ---------------------------------------------------------------- Logo
-            Section("Logo")
-            val logoVersion = LogoStore.version
-            val hasCustom = remember(logoVersion) { LogoStore.exists(context) }
-            val choices = buildList {
-                add("none" to "Bez loga")
-                LogoStore.builtins.forEach { add(it.id to it.label) }
-                if (hasCustom) add("custom" to "Vlastní (nahrané)")
-            }
-            Text("Vyber logo (projeví se hned na obrazovce i na dalších fotkách)", fontSize = 18.sp)
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                choices.forEach { (id, label) ->
-                    // Načíst na pozadí a zmenšené – velké PNG by menu na pomalé desce zaseklo.
-                    val thumb = androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, id, logoVersion) {
-                        value = withContext(Dispatchers.IO) { LogoStore.thumbnail(context, id)?.asImageBitmap() }
-                    }.value
-                    val selected = (if (logoChoice == "custom" && !hasCustom) "none" else logoChoice) == id
-                    Column(
-                        Modifier
-                            .width(170.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (selected) Accent else KeyColor)
-                            .clickable {
-                                logoChoice = id
-                                LogoStore.select(context, id)
-                            }
-                            .padding(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Box(
-                            Modifier.fillMaxWidth().height(90.dp).background(Color(0xFF555555), RoundedCornerShape(8.dp)).padding(6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            if (thumb != null) {
-                                Image(bitmap = thumb, contentDescription = label, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                            } else {
-                                Text("—", fontSize = 28.sp, color = Color.White.copy(alpha = 0.6f))
-                            }
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text(label, fontSize = 16.sp, color = if (selected) Color.Black else Color.White, textAlign = TextAlign.Center)
-                    }
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    logoMessage = null
-                    pickLogo { uri ->
-                        if (uri != null) {
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) { LogoStore.import(context, uri) }
-                                r.onSuccess { logoChoice = "custom" }
-                                logoMessage = r.fold({ "Vlastní logo uloženo a vybráno ✔" }, { "Logo nejde načíst: ${it.message}" })
-                            }
-                        }
-                    }
-                }) { Text(if (hasCustom) "Nahradit vlastní logo" else "Nahrát vlastní logo") }
-                if (hasCustom) {
-                    OutlinedButton(onClick = {
-                        LogoStore.delete(context)
-                        if (logoChoice == "custom") logoChoice = "none"
-                        logoMessage = "Vlastní logo smazáno"
-                    }) { Text("Smazat vlastní logo") }
-                }
-            }
-            Text(
-                "PNG s průhledností, JPG nebo SVG. Otevře se výběr souboru Androidu (např. z USB flashky nebo Stažených souborů). Logo jde nahrát i instalací: soubor logo.png vedle instalace.ps1.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            logoMessage?.let { Text(it, fontSize = 18.sp) }
-            SwitchRow("Logo na úvodní obrazovce", logoOnScreen) { logoOnScreen = it }
-            SwitchRow("Logo na fotce (e-mail i tisk)", logoOnPhoto) { logoOnPhoto = it }
-            if (logoOnPhoto) {
-                Text("Umístění na fotce", fontSize = 20.sp)
-                ChoiceRow(
-                    listOf(
-                        "TL" to "vlevo nahoře", "TC" to "nahoře uprostřed", "TR" to "vpravo nahoře",
-                        "BL" to "vlevo dole", "BC" to "dole uprostřed", "BR" to "vpravo dole",
-                    ),
-                    logoPosition,
-                ) { logoPosition = it }
-                Field("Velikost loga (% šířky fotky, 5–60)", logoSize, number = true) { logoSize = it.filter(Char::isDigit) }
-            }
-
-            // ---------------------------------------------------------------- Tisk
-            Section("Tisk")
-            SwitchRow("Povolit tisk (tlačítko „Vytisknout“ u fotky)", printEnabled) { printEnabled = it }
-            if (printEnabled) {
-                Text("Model tiskárny (formát vždy 10×15 cm, 300 DPI, bez okrajů)", fontSize = 20.sp)
-                ChoiceRow(
-                    listOf("selphy_cp1500" to "Canon SELPHY CP1500", "dnp_qw410" to "DNP DP-QW410", "generic" to "Obecná 10×15"),
-                    printerModel,
-                ) { printerModel = it }
-                Text(
-                    when (printerModel) {
-                        "selphy_cp1500" -> "SELPHY: papír KP-108IN (100×148 mm). Připoj ji USB kabelem a zvol „USB – Canon SELPHY“, nebo ji připoj k Wi-Fi a zvol „Síťová tiskárna“. Obojí tiskne hned, bez dialogů."
-                        "dnp_qw410" -> "DNP DP-QW410 má jen USB a Android pro ni nemá ovladač. Funguje přes tiskový server (např. Raspberry Pi s CUPS) jako „Síťová tiskárna“, nebo přes tiskovou službu Androidu, pokud ji výrobce nabízí."
-                        else -> "Fotka se připraví jako 4×6″ (1800×1200 px) a vyplní celý papír."
-                    },
-                    fontSize = 15.sp,
-                    color = Color.White.copy(alpha = 0.6f),
-                )
-                if (usbPrinters.isNotEmpty()) {
-                    Text(
-                        "Přes USB je připojená tiskárna: ${usbPrinters.joinToString()}. Android na ni umí tisknout jen přes tiskovou službu – zvol „Systémový tisk Androidu“.",
-                        fontSize = 16.sp,
-                        color = Accent,
-                    )
-                }
-                if (selphyName != null && printMode != "selphy_usb") {
-                    Text(
-                        "Přes USB je připojená $selphyName – pro tisk přes kabel zvol „USB – Canon SELPHY“.",
-                        fontSize = 16.sp,
-                        color = Accent,
-                    )
-                }
-                ChoiceRow(
-                    listOf(
-                        "ipp" to "Síťová tiskárna (doporučeno)",
-                        "selphy_usb" to "USB – Canon SELPHY",
-                        "system" to "Systémový tisk Androidu",
-                    ),
-                    printMode,
-                ) { printMode = it }
-                if (printMode == "selphy_usb") {
-                    Text(
-                        "SELPHY připoj USB kabelem do automatu a zapni ji. Vlož papír 10×15 (KP-108IN). " +
-                            "Poprvé dej „Otestovat tiskárnu“ a na obrazovce povol přístup: zaškrtni „Použít ve výchozím nastavení pro toto zařízení USB“ (nebo „Vždy“) a dej OK – jinak se povolení po vypnutí tiskárny ztratí. Pak test zopakuj.",
-                        fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.6f),
-                    )
-                    OutlinedButton(onClick = {
-                        usbDevices = SelphyUsb.describeAll(context)
-                        val device = SelphyUsb.find(context)
-                        selphyName = device?.let { SelphyUsb.modelName(it) }
-                        if (device != null && !SelphyUsb.hasPermission(context, device)) {
-                            printerTest = "Povol na obrazovce přístup k tiskárně (zaškrtni „Použít ve výchozím nastavení…“ / „Vždy“) a dej „Otestovat tiskárnu“ znovu."
-                            SelphyUsb.requestPermission(activity, device)
-                        } else {
-                            printerTest = "Zkouším tiskárnu…"
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) { SelphyUsb.test(context) }
-                                printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
-                            }
-                        }
-                    }) { Text("Otestovat tiskárnu") }
-                    SelphyUsb.problem?.let { Text("⚠ Tiskárna čeká na obsluhu: $it", fontSize = 18.sp, color = Accent) }
-                    printerTest?.let { Text(it, fontSize = 18.sp) }
-                    Text(
-                        "USB zařízení, která automat vidí: " + usbDevices.joinToString("; ").ifEmpty { "žádné" },
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.6f),
-                    )
-                } else if (printMode == "ipp") {
-                    Text(
-                        "Tiskárna musí být ve stejné síti jako automat (Wi-Fi / kabel). Tiskne se rovnou, bez dialogů.",
-                        fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.6f),
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = {
-                            foundPrinters.clear()
-                            searching = true
-                            discovery.start { p ->
-                                scope.launch(Dispatchers.Main) { if (foundPrinters.none { it.url == p.url }) foundPrinters += p }
-                            }
-                            scope.launch {
-                                delay(8000)
-                                discovery.stop()
-                                searching = false
-                            }
-                        }, enabled = !searching) { Text(if (searching) "Hledám…" else "Vyhledat tiskárny") }
-                        OutlinedButton(onClick = {
-                            printerTest = "Zkouším tiskárnu…"
-                            val url = IppClient.normalize(printerUrl)
-                            scope.launch {
-                                val r = withContext(Dispatchers.IO) { IppClient.test(url) }
-                                printerTest = (if (r.ok) "✔ " else "✘ ") + r.message
-                            }
-                        }, enabled = printerUrl.isNotBlank()) { Text("Otestovat tiskárnu") }
-                    }
-                    if (searching && foundPrinters.isEmpty()) Text("Hledám tiskárny v síti…", fontSize = 16.sp)
-                    if (!searching && foundPrinters.isEmpty() && printerName.isEmpty() && printerUrl.isEmpty()) {
-                        Text("Žádnou tiskárnu jsem zatím nenašel – zadej její IP adresu ručně.", fontSize = 16.sp)
-                    }
-                    foundPrinters.forEach { p ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { printerUrl = p.url; printerName = p.name },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(selected = printerUrl == p.url, onClick = { printerUrl = p.url; printerName = p.name })
-                            Column {
-                                Text(p.name, fontSize = 20.sp)
-                                Text(p.url, fontSize = 14.sp, color = Color.White.copy(alpha = 0.6f))
-                            }
-                        }
-                    }
-                    if (printerName.isNotEmpty()) Text("Vybraná tiskárna: $printerName", fontSize = 18.sp)
-                    Field("Adresa tiskárny (IP nebo ipp://…)", printerUrl) { printerUrl = it; printerName = "" }
-                    printerTest?.let { Text(it, fontSize = 18.sp) }
-                } else {
-                    Text(
-                        "Otevře se tiskový dialog Androidu. Tiskárna musí být přidaná přes tiskovou službu (Nastavení Androidu → Tisk, např. Mopria nebo aplikace výrobce tiskárny).",
-                        fontSize = 15.sp,
-                        color = Color.White.copy(alpha = 0.6f),
-                    )
-                }
-                Field("Max. počet kopií pro zákazníka", printMaxCopies, number = true) { printMaxCopies = it.filter(Char::isDigit) }
             }
 
             // ---------------------------------------------------------------- E-mail
-            Section("E-mail (SMTP)")
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { host = "smtp.gmail.com"; port = "465"; security = "SSL" }) { Text("Gmail") }
-                OutlinedButton(onClick = { host = "smtp.seznam.cz"; port = "465"; security = "SSL" }) { Text("Seznam") }
-                OutlinedButton(onClick = { host = "smtp-relay.brevo.com"; port = "587"; security = "STARTTLS" }) { Text("Brevo") }
-                OutlinedButton(onClick = { host = ""; port = "587"; security = "STARTTLS" }) { Text("Vlastní / firemní") }
-            }
-            Text(
-                "Firemní e-mail: server, port a zabezpečení najdeš u svého poskytovatele (např. smtp.firma.cz, M365: smtp.office365.com 587 STARTTLS). " +
-                    "Adresa odesílatele musí být schránka, do které se přihlašuješ, nebo její povolený alias – jinak server e-mail odmítne nebo skončí ve spamu.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            Field("SMTP server", host) { host = it }
-            Field("Port (465 = SSL, 587 = STARTTLS)", port, number = true) {
-                port = it.filter(Char::isDigit)
-                when (port) {
-                    "465" -> security = "SSL"
-                    "587", "25", "2525" -> security = "STARTTLS"
+            Section("E-mail (SMTP)") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { host = "smtp.gmail.com"; port = "465"; security = "SSL" }) { Text("Gmail") }
+                    OutlinedButton(onClick = { host = "smtp.seznam.cz"; port = "465"; security = "SSL" }) { Text("Seznam") }
+                    OutlinedButton(onClick = { host = "smtp-relay.brevo.com"; port = "587"; security = "STARTTLS" }) { Text("Brevo") }
+                    OutlinedButton(onClick = { host = ""; port = "587"; security = "STARTTLS" }) { Text("Vlastní / firemní") }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                listOf("SSL", "STARTTLS", "NONE").forEach { option ->
-                    RadioButton(selected = security == option, onClick = { security = option })
-                    Text(if (option == "NONE") "bez šifrování" else option, modifier = Modifier.padding(end = 16.dp))
-                }
-            }
-            Field("Uživatel (přihlašovací e-mail)", user) { user = it }
-            Field("Heslo (u Gmailu „heslo pro aplikace“)", password, password = true) { password = it }
-            Field("Adresa odesílatele (prázdné = uživatel)", fromAddress) { fromAddress = it }
-            Field("Jméno odesílatele (např. název firmy)", fromName) { fromName = it }
-            Field("Odpovědi posílat na (prázdné = adresa odesílatele)", replyTo) { replyTo = it }
-            Field("Předmět", subject) { subject = it }
-            Field("Text e-mailu", body, singleLine = false) { body = it }
-            SwitchRow("Tolerovat neověřený certifikát (jen pro staré Androidy)", trustAll) { trustAll = it }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { testMail(send = false) }, enabled = !mailTesting) { Text("Otestovat připojení k mailu") }
-                OutlinedButton(onClick = { testMail(send = true) }, enabled = !mailTesting) { Text("…a poslat testovací e-mail") }
-            }
-            if (mailTesting) Text("Testuji připojení…", fontSize = 18.sp)
-            mailReport?.let { report ->
-                Column(
-                    Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        if (report.ok) "✔ Pošta funguje" else "✘ Pošta nefunguje",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (report.ok) Color(0xFF81C784) else Color(0xFFFF6E6E),
-                    )
-                    report.steps.forEach { step ->
-                        Text("${if (step.ok) "✔" else "✘"} ${step.name}: ${step.detail}", fontSize = 17.sp,
-                            color = if (step.ok) Color.White else Color(0xFFFF6E6E))
-                        step.hint?.let { Text("→ $it", fontSize = 17.sp, color = Accent) }
+                Text(
+                    "Firemní e-mail: server, port a zabezpečení najdeš u svého poskytovatele (např. smtp.firma.cz, M365: smtp.office365.com 587 STARTTLS). " +
+                        "Adresa odesílatele musí být schránka, do které se přihlašuješ, nebo její povolený alias – jinak server e-mail odmítne nebo skončí ve spamu.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                Field("SMTP server", host) { host = it }
+                Field("Port (465 = SSL, 587 = STARTTLS)", port, number = true) {
+                    port = it.filter(Char::isDigit)
+                    when (port) {
+                        "465" -> security = "SSL"
+                        "587", "25", "2525" -> security = "STARTTLS"
                     }
-                    if (report.protocolLog.isNotBlank()) {
-                        TextButton(onClick = { showProtocol = !showProtocol }) {
-                            Text(if (showProtocol) "Skrýt komunikaci se serverem" else "Zobrazit komunikaci se serverem")
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    listOf("SSL", "STARTTLS", "NONE").forEach { option ->
+                        RadioButton(selected = security == option, onClick = { security = option })
+                        Text(if (option == "NONE") "bez šifrování" else option, modifier = Modifier.padding(end = 16.dp))
+                    }
+                }
+                Field("Uživatel (přihlašovací e-mail)", user) { user = it }
+                Field("Heslo (u Gmailu „heslo pro aplikace“)", password, password = true) { password = it }
+                Field("Adresa odesílatele (prázdné = uživatel)", fromAddress) { fromAddress = it }
+                Field("Jméno odesílatele (např. název firmy)", fromName) { fromName = it }
+                Field("Odpovědi posílat na (prázdné = adresa odesílatele)", replyTo) { replyTo = it }
+                Field("Předmět", subject) { subject = it }
+                Field("Text e-mailu", body, singleLine = false) { body = it }
+                SwitchRow("Tolerovat neověřený certifikát (jen pro staré Androidy)", trustAll) { trustAll = it }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = { testMail(send = false) }, enabled = !mailTesting) { Text("Otestovat připojení k mailu") }
+                    OutlinedButton(onClick = { testMail(send = true) }, enabled = !mailTesting) { Text("…a poslat testovací e-mail") }
+                }
+                if (mailTesting) Text("Testuji připojení…", fontSize = 18.sp)
+                mailReport?.let { report ->
+                    Column(
+                        Modifier.fillMaxWidth().background(KeyColor, RoundedCornerShape(12.dp)).padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            if (report.ok) "✔ Pošta funguje" else "✘ Pošta nefunguje",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (report.ok) Color(0xFF81C784) else Color(0xFFFF6E6E),
+                        )
+                        report.steps.forEach { step ->
+                            Text("${if (step.ok) "✔" else "✘"} ${step.name}: ${step.detail}", fontSize = 17.sp,
+                                color = if (step.ok) Color.White else Color(0xFFFF6E6E))
+                            step.hint?.let { Text("→ $it", fontSize = 17.sp, color = Accent) }
                         }
-                        if (showProtocol) Text(report.protocolLog, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        if (report.protocolLog.isNotBlank()) {
+                            TextButton(onClick = { showProtocol = !showProtocol }) {
+                                Text(if (showProtocol) "Skrýt komunikaci se serverem" else "Zobrazit komunikaci se serverem")
+                            }
+                            if (showProtocol) Text(report.protocolLog, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        }
                     }
                 }
             }
 
             // ---------------------------------------------------------------- Účetnictví
-            Section("Účetnictví (web)")
-            Text(
-                "Každý tisk (a každá AI úprava) se pošle do tvého webového účetnictví – tam je přehled po dnech a účtenky. " +
-                    "Bez internetu se hlášení pošle později. Prázdná adresa = nehlásit.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            Field("Adresa API (https://…/api.php)", reportUrl) { reportUrl = it.trim(); reportTest = null }
-            SecretField("Token automatu (z účetnictví → Nastavení → Automaty)", reportToken) { reportToken = it.trim(); reportTest = null }
-            OutlinedButton(onClick = { qrFor = "report" }) { Text("📷 Načíst adresu a token z QR kódu") }
-            Field("Jméno automatu v účetnictví", deviceName) { deviceName = it.take(40) }
-            if (reportUrl.startsWith("http://", ignoreCase = true)) {
-                Text("⚠ Adresa bez https – token by šel sítí nešifrovaně.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
-            }
-            Button(onClick = {
-                reportTest = "Zkouším spojení…"
-                val url = reportUrl
-                val token = reportToken
-                scope.launch {
-                    val (ok, msg) = withContext(Dispatchers.IO) { ReportWorker.test(url, token) }
-                    reportTest = (if (ok) "✔ " else "✘ ") + msg
-                    if (ok) save() // funguje → rovnou uložit
+            Section("Účetnictví (web)") {
+                Text(
+                    "Každý tisk (a každá AI úprava) se pošle do tvého webového účetnictví – tam je přehled po dnech a účtenky. " +
+                        "Bez internetu se hlášení pošle později. Prázdná adresa = nehlásit.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                Field("Adresa API (https://…/api.php)", reportUrl) { reportUrl = it.trim(); reportTest = null }
+                SecretField("Token automatu (z účetnictví → Nastavení → Automaty)", reportToken) { reportToken = it.trim(); reportTest = null }
+                OutlinedButton(onClick = { qrFor = "report" }) { Text("📷 Načíst adresu a token z QR kódu") }
+                Field("Jméno automatu v účetnictví", deviceName) { deviceName = it.take(40) }
+                if (reportUrl.startsWith("http://", ignoreCase = true)) {
+                    Text("⚠ Adresa bez https – token by šel sítí nešifrovaně.", fontSize = 16.sp, color = Color(0xFFFF6E6E))
                 }
-            }) { Text("Otestovat spojení s účetnictvím") }
-            reportTest?.let { Text(it, fontSize = 18.sp) }
+                Button(onClick = {
+                    reportTest = "Zkouším spojení…"
+                    val url = reportUrl
+                    val token = reportToken
+                    scope.launch {
+                        val (ok, msg) = withContext(Dispatchers.IO) { ReportWorker.test(url, token) }
+                        reportTest = (if (ok) "✔ " else "✘ ") + msg
+                        if (ok) save() // funguje → rovnou uložit
+                    }
+                }) { Text("Otestovat spojení s účetnictvím") }
+                reportTest?.let { Text(it, fontSize = 18.sp) }
+            }
 
             // ---------------------------------------------------------------- Aktualizace
-            Section("Aktualizace")
-            Text("Nainstalovaná verze: ${Updater.currentName}", fontSize = 18.sp)
-            latest?.let { r ->
-                if (r.versionCode > Updater.currentVersion) {
-                    Text("Na GitHubu je nová verze: ${r.title}", fontSize = 18.sp, color = Accent)
-                    if (r.notes.isNotBlank()) Text(r.notes.take(400), fontSize = 15.sp, color = Color.White.copy(alpha = 0.7f))
-                } else {
-                    Text("Je nainstalovaná nejnovější verze.", fontSize = 16.sp, color = Color.White.copy(alpha = 0.6f))
+            Section("Aktualizace") {
+                Text("Nainstalovaná verze: ${Updater.currentName}", fontSize = 18.sp)
+                latest?.let { r ->
+                    if (r.versionCode > Updater.currentVersion) {
+                        Text("Na GitHubu je nová verze: ${r.title}", fontSize = 18.sp, color = Accent)
+                        if (r.notes.isNotBlank()) Text(r.notes.take(400), fontSize = 15.sp, color = Color.White.copy(alpha = 0.7f))
+                    } else {
+                        Text("Je nainstalovaná nejnovější verze.", fontSize = 16.sp, color = Color.White.copy(alpha = 0.6f))
+                    }
                 }
+                Button(onClick = { runUpdate() }, enabled = !Updater.busy) { Text("Aktualizovat aplikaci") }
+                if (Updater.busy && Updater.progress > 0f && Updater.progress < 1f) {
+                    LinearProgressIndicator(progress = { Updater.progress }, modifier = Modifier.fillMaxWidth())
+                }
+                if (Updater.status.isNotEmpty()) Text(Updater.status, fontSize = 18.sp)
+                Text(
+                    "Stáhne poslední vydání z GitHubu a nainstaluje ho. Nastavení, logo i tiskárna zůstanou.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                Field("Repozitář na GitHubu (vlastník/název)", githubRepo) { githubRepo = it }
+                Field("Token (jen pro soukromý repozitář)", githubToken, password = true) { githubToken = it }
             }
-            Button(onClick = { runUpdate() }, enabled = !Updater.busy) { Text("Aktualizovat aplikaci") }
-            if (Updater.busy && Updater.progress > 0f && Updater.progress < 1f) {
-                LinearProgressIndicator(progress = { Updater.progress }, modifier = Modifier.fillMaxWidth())
-            }
-            if (Updater.status.isNotEmpty()) Text(Updater.status, fontSize = 18.sp)
-            Text(
-                "Stáhne poslední vydání z GitHubu a nainstaluje ho. Nastavení, logo i tiskárna zůstanou.",
-                fontSize = 15.sp,
-                color = Color.White.copy(alpha = 0.6f),
-            )
-            Field("Repozitář na GitHubu (vlastník/název)", githubRepo) { githubRepo = it }
-            Field("Token (jen pro soukromý repozitář)", githubToken, password = true) { githubToken = it }
 
             // ---------------------------------------------------------------- Log
-            Section("Log (záznam událostí)")
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = {
-                    showLog = !showLog
-                    if (showLog) logText = AppLog.tail(120)
-                }) { Text(if (showLog) "Skrýt log" else "Zobrazit log") }
-                OutlinedButton(onClick = { AppLog.clear(); logText = "" }) { Text("Smazat log") }
-            }
-            if (showLog) {
-                Text(
-                    logText.ifEmpty { "(prázdný)" },
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(8.dp)).padding(12.dp),
-                )
+            Section("Log (záznam událostí)") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = {
+                        showLog = !showLog
+                        if (showLog) logText = AppLog.tail(120)
+                    }) { Text(if (showLog) "Skrýt log" else "Zobrazit log") }
+                    OutlinedButton(onClick = { AppLog.clear(); logText = "" }) { Text("Smazat log") }
+                }
+                if (showLog) {
+                    Text(
+                        logText.ifEmpty { "(prázdný)" },
+                        fontSize = 13.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.fillMaxWidth().background(Color.Black, RoundedCornerShape(8.dp)).padding(12.dp),
+                    )
+                }
             }
 
             // ---------------------------------------------------------------- Systém
-            Section("Systém")
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_WIFI_SETTINGS) }) { Text("Wi-Fi") }
-                OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_SETTINGS) }) { Text("Nastavení Androidu") }
-                OutlinedButton(onClick = { save(); Kiosk.restartApp(activity) }) { Text("Restartovat aplikaci") }
-            }
-            if (isOwner) {
-                OutlinedButton(onClick = { confirmRemoveOwner = true }) { Text("Odebrat správce zařízení (před odinstalací)") }
+            Section("Systém") {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_WIFI_SETTINGS) }) { Text("Wi-Fi") }
+                    OutlinedButton(onClick = { Kiosk.openSystemScreen(activity, Settings.ACTION_SETTINGS) }) { Text("Nastavení Androidu") }
+                    OutlinedButton(onClick = { save(); Kiosk.restartApp(activity) }) { Text("Restartovat aplikaci") }
+                }
+                if (isOwner) {
+                    OutlinedButton(onClick = { confirmRemoveOwner = true }) { Text("Odebrat správce zařízení (před odinstalací)") }
+                }
             }
 
             Spacer(Modifier.height(12.dp))
@@ -1291,9 +1302,26 @@ private fun ChoiceRow(options: List<Pair<String, String>>, selected: String, onS
     }
 }
 
+/** Rozbalovací kategorie nastavení (po otevření menu sbalená – obsah se pak ani nevykresluje). */
 @Composable
-private fun Section(title: String) {
-    Text(title, color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 16.dp))
+private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF1E1E1E))) {
+        Row(
+            Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(title, color = Accent, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(if (open) "▲" else "▼", color = Accent, fontSize = 22.sp)
+        }
+        if (open) {
+            Column(
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                content = content,
+            )
+        }
+    }
 }
 
 @Composable

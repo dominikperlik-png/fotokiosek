@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableLongState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -55,6 +57,8 @@ import androidx.compose.ui.graphics.PathEffect
 import kotlin.math.max
 import kotlin.math.min
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -98,6 +102,8 @@ import java.io.ByteArrayOutputStream
 sealed interface Screen {
     data object Idle : Screen
     data class Countdown(val value: Int) : Screen
+    /** Fotka je pořízená a připravuje se (logo, tisková verze) – animace „vyvolávání“. Rovnost = identita. */
+    class Developing(val raw: Bitmap) : Screen
     data class Review(val photo: Bitmap) : Screen
     data class Email(val photo: Bitmap, val email: String = "") : Screen
     data class Confirm(val photo: Bitmap, val email: String) : Screen
@@ -322,11 +328,18 @@ fun KioskApp(
 
             val result = photo!!.await()
             // „Úsměv!“ ať je vidět aspoň chvilku, i když je fotka hotová hned
-            waitUntil(end + 500)
+            waitUntil(end + 300)
             result.onSuccess { raw ->
                 // Galerie (když je zapnutá): fotka bez loga, aby šla znovu tisknout i posílat.
                 saveToGallery(raw)
+                // Mezistav: pořízená fotka se „vyvolá“, mezitím se na pozadí připraví logo a tisková verze.
+                val developing = Screen.Developing(raw)
+                screen = developing
+                val shownAt = SystemClock.elapsedRealtime()
                 if (aiActive()) {
+                    waitUntil(shownAt + DEVELOP_MIN_MS)
+                    if (screen !== developing) return@onSuccess
+
                     // AI FOTOKIOSEK: nejdřív výběr stylu.
                     aiRaw = raw
                     aiLast = null
@@ -335,6 +348,8 @@ fun KioskApp(
                     return@onSuccess
                 }
                 val (final, forPrint) = prepare(raw)
+                waitUntil(shownAt + DEVELOP_MIN_MS)
+                if (screen !== developing) return@onSuccess // mezitím jinam (nečinnost, správce)
                 printPhoto = forPrint
                 screen = Screen.Review(final)
             }.onFailure { e ->
@@ -464,6 +479,7 @@ fun KioskApp(
                     onGallery = if (settings.galleryEnabled) ({ openGallery() }) else null,
                 )
                 is Screen.Countdown -> CountdownOverlay(s.value)
+                is Screen.Developing -> DevelopingScreen(s.raw, settings.fillScreen)
                 is Screen.Review -> ReviewScreen(
                     photo = printPhoto ?: s.photo,
                     canPrint = settings.printEnabled,
@@ -511,7 +527,12 @@ fun KioskApp(
                     onOtherStyle = { screen = Screen.AiPick(s.raw) },
                     onLastResult = aiLast?.let { last -> { showResult(last, aiLastStyle) } },
                 )
-                Screen.Gallery -> GalleryScreen(settings.keepDays, onOpen = { openFromGallery(it) }, onClose = { goIdle() })
+                Screen.Gallery -> GalleryScreen(
+                    settings.keepDays,
+                    canDelete = settings.galleryRequirePin,
+                    // Dialog je samostatné okno – jeho dotyky nenulují nečinnost, tak aspoň při otevření.
+                    onActivity = { lastTouch.longValue = SystemClock.elapsedRealtime() },
+                    onOpen = { openFromGallery(it) }, onClose = { goIdle() })
                 Screen.Admin -> AdminScreen(
                     settings, camera, pickLogo,
                     onActivity = { lastTouch.longValue = SystemClock.elapsedRealtime() },
@@ -603,6 +624,8 @@ fun KioskApp(
 }
 
 private const val PREFOCUS_MS = 800L
+/** Jak dlouho nejmíň běží animace „vyvolávání“ (aby nebyla jen probliknutím). */
+private const val DEVELOP_MIN_MS = 900L
 private const val MAX_PIN_FAILURES = 5
 private const val PIN_LOCK_MS = 5 * 60_000L
 /** Po kolika s nečinnosti se zruší čekání na AI (klient má limit 120 s na čtení). */
@@ -797,6 +820,68 @@ private fun ShutterButton(modifier: Modifier, onClick: () -> Unit) {
     }
 }
 
+/**
+ * „Vyvolávání“ fotky po vyfocení: pořízený snímek vyjede z bílého záblesku přes vybledlou černobílou
+ * do plných barev a lehce se usadí (zmenšení 1,06 → 1). Jen barevný filtr a měřítko jedné bitmapy
+ * (žádné rozmazání – Android 7 ho neumí plynule), dole pulzující tečky.
+ */
+@Composable
+private fun DevelopingScreen(raw: Bitmap, fill: Boolean) {
+    val image = remember(raw) { raw.asImageBitmap() }
+    val progress = remember(raw) { Animatable(0f) }
+    LaunchedEffect(raw) { progress.animateTo(1f, tween(DEVELOP_MIN_MS.toInt(), easing = FastOutSlowInEasing)) }
+    // Barvy se mění jen po dobu animace (~1 s); tečky překreslí obrazovku jen 3× za 1,2 s.
+    val filter = ColorFilter.colorMatrix(developMatrix(progress.value))
+    val dots = rememberInfiniteTransition(label = "dots")
+    val phase by dots.animateFloat(0f, 3f, infiniteRepeatable(tween(1200), RepeatMode.Restart), label = "phase")
+    val dot by remember { derivedStateOf { phase.toInt() } }
+    Box(Modifier.fillMaxSize().background(Dark), contentAlignment = Alignment.Center) {
+        Image(
+            image,
+            contentDescription = "Pořízená fotka",
+            contentScale = if (fill) ContentScale.Crop else ContentScale.Fit,
+            colorFilter = filter,
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                val scale = 1.06f - 0.06f * progress.value
+                scaleX = scale
+                scaleY = scale
+            },
+        )
+        Row(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 48.dp)
+                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(32.dp))
+                .padding(horizontal = 32.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("Připravuji fotku", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            repeat(3) { i ->
+                val on = dot == i
+                Box(Modifier.size(14.dp).clip(CircleShape).background(if (on) Accent else Color.White.copy(alpha = 0.35f)))
+            }
+        }
+    }
+}
+
+/** Barevná matice „vyvolávání“: t = 0 vybledlá černobílá, t = 1 původní barvy. */
+private fun developMatrix(t: Float): ColorMatrix {
+    val s = t // sytost 0 → 1
+    val wash = (1f - t) * 0.55f // podíl bílé
+    val k = 1f - wash
+    val off = 255f * wash
+    val lr = 0.213f * (1 - s); val lg = 0.715f * (1 - s); val lb = 0.072f * (1 - s)
+    return ColorMatrix(
+        floatArrayOf(
+            (lr + s) * k, lg * k, lb * k, 0f, off,
+            lr * k, (lg + s) * k, lb * k, 0f, off,
+            lr * k, lg * k, (lb + s) * k, 0f, off,
+            0f, 0f, 0f, 1f, 0f,
+        )
+    )
+}
+
 @Composable
 private fun CountdownOverlay(value: Int) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -857,19 +942,31 @@ private fun ReviewScreen(
 /** Náhledy galerie se dekódují nejvýš dva najednou (rychlé posouvání by jinak spustilo desítky naráz). */
 private val ThumbnailDispatcher = java.util.concurrent.Executors.newFixedThreadPool(2).asCoroutineDispatcher()
 
-/** Galerie pro obsluhu: mřížka fotek (nejnovější první), klepnutí = otevřít jako po vyfocení (tisk / e-mail). */
+/**
+ * Galerie pro obsluhu: mřížka fotek (nejnovější první), klepnutí = otevřít jako po vyfocení (tisk / e-mail).
+ * Mazat (jednu fotku nebo všechny, vždy s potvrzením) jde jen při [canDelete] = galerie chráněná PINem.
+ */
 @Composable
-private fun GalleryScreen(keepDays: Int, onOpen: (File) -> Unit, onClose: () -> Unit) {
+private fun GalleryScreen(keepDays: Int, canDelete: Boolean, onActivity: () -> Unit, onOpen: (File) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     BackHandler(onBack = onClose)
-    val files by produceState<List<File>?>(null) {
-        value = withContext(Dispatchers.IO) { runCatching { PhotoStore.gallery(context, keepDays) }.getOrDefault(emptyList()) }
+    var files by remember { mutableStateOf<List<File>?>(null) }
+    var askDelete by remember { mutableStateOf<File?>(null) }
+    var askDeleteAll by remember { mutableStateOf(false) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        files = withContext(Dispatchers.IO) { runCatching { PhotoStore.gallery(context, keepDays) }.getOrDefault(emptyList()) }
     }
     Column(Modifier.fillMaxSize().background(Dark).padding(24.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Galerie", fontSize = 40.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (canDelete && !files.isNullOrEmpty()) {
+                BigButton("🗑 Smazat vše", Modifier.width(280.dp), primary = false) { onActivity(); askDeleteAll = true }
+            }
             BigButton("Zavřít", Modifier.width(220.dp), primary = false, onClick = onClose)
         }
+        deleteError?.let { Text(it, fontSize = 22.sp, color = Color(0xFFFF6E6E), modifier = Modifier.padding(top = 8.dp)) }
         Spacer(Modifier.height(16.dp))
         val list = files
         when {
@@ -881,25 +978,93 @@ private fun GalleryScreen(keepDays: Int, onOpen: (File) -> Unit, onClose: () -> 
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                items(list, key = { it.name }) { file -> GalleryItem(file, onClick = { onOpen(file) }) }
+                items(list, key = { it.name }) { file ->
+                    GalleryItem(file, onClick = { onOpen(file) }, onDelete = if (canDelete) ({ onActivity(); askDelete = file }) else null)
+                }
+            }
+        }
+    }
+
+    askDelete?.let { file ->
+        ConfirmDialog(
+            title = "Smazat tuto fotku?",
+            text = "Fotka z ${galleryTime(file)} zmizí z galerie. Vrátit to nejde.",
+            confirm = "Smazat",
+            onCancel = { askDelete = null },
+        ) {
+            askDelete = null
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { PhotoStore.deleteFromGallery(context, file) }
+                if (ok) files = files?.minus(file) else deleteError = "Fotku se nepodařilo smazat."
+            }
+        }
+    }
+    if (askDeleteAll) {
+        ConfirmDialog(
+            title = "Smazat celou galerii?",
+            text = "Smažou se všechny fotky v galerii (${files?.size ?: 0}). Vrátit to nejde.",
+            confirm = "Smazat vše",
+            onCancel = { askDeleteAll = false },
+        ) {
+            askDeleteAll = false
+            scope.launch {
+                files = withContext(Dispatchers.IO) {
+                    PhotoStore.clearGallery(context)
+                    runCatching { PhotoStore.gallery(context, keepDays) }.getOrDefault(emptyList())
+                }
+                if (!files.isNullOrEmpty()) deleteError = "Některé fotky se nepodařilo smazat."
+            }
+        }
+    }
+}
+
+private fun galleryTime(file: File): String =
+    java.text.SimpleDateFormat("d. M. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(file.lastModified()))
+
+/** Potvrzovací dialog ve stylu kiosku (velké písmo a tlačítka). */
+@Composable
+private fun ConfirmDialog(title: String, text: String, confirm: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(620.dp).background(Dark, RoundedCornerShape(28.dp)).padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(title, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Text(text, fontSize = 24.sp, color = Color.White.copy(alpha = 0.8f), textAlign = TextAlign.Center)
+            Spacer(Modifier.height(28.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                BigButton("Zrušit", Modifier.weight(1f), primary = false, onClick = onCancel)
+                BigButton(confirm, Modifier.weight(1f), onClick = onConfirm)
             }
         }
     }
 }
 
 @Composable
-private fun GalleryItem(file: File, onClick: () -> Unit) {
+private fun GalleryItem(file: File, onClick: () -> Unit, onDelete: (() -> Unit)?) {
     // Náhled se načte zmenšený na pozadí, až když je položka vidět.
     val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, file) {
         value = withContext(ThumbnailDispatcher) { runCatching { PhotoStore.thumbnail(file, 400)?.asImageBitmap() }.getOrNull() }
     }
-    val time = remember(file) { java.text.SimpleDateFormat("d. M. HH:mm", java.util.Locale.getDefault()).format(java.util.Date(file.lastModified())) }
+    val time = remember(file) { galleryTime(file) }
     Column(
         Modifier.clip(RoundedCornerShape(16.dp)).background(KeyColor).clickable(onClick = onClick).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
             thumb?.let { Image(it, contentDescription = "Fotka $time", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
+            if (onDelete != null) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .size(60.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable(onClick = onDelete),
+                    contentAlignment = Alignment.Center,
+                ) { Text("🗑", fontSize = 28.sp) }
+            }
         }
         Text(time, fontSize = 20.sp, modifier = Modifier.padding(top = 6.dp))
     }
