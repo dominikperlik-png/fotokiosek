@@ -65,14 +65,19 @@ function seed_styles(PDO $pdo): void
 }
 
 /** Název → id stylu („Fantasy / Středověk“ → „fantasy-stredovek“), jedinečné. */
-function style_slug(string $name): string
+/** „Žluťoučký kůň“ → „zlutoucky-kun“ (max. $len znaků; prázdné → $fallback). */
+function ascii_slug(string $name, int $len, string $fallback): string
 {
     $map = ['á' => 'a', 'č' => 'c', 'ď' => 'd', 'é' => 'e', 'ě' => 'e', 'í' => 'i', 'ň' => 'n', 'ó' => 'o', 'ř' => 'r', 'š' => 's', 'ť' => 't', 'ú' => 'u', 'ů' => 'u', 'ý' => 'y', 'ž' => 'z', 'ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ß' => 'ss'];
     $s = function_exists('mb_strtolower') ? mb_strtolower($name, 'UTF-8') : strtolower($name);
     $s = strtr($s, $map);
     $s = trim((string)preg_replace('/[^a-z0-9]+/', '-', $s), '-');
-    $s = substr($s, 0, 32) ?: 'styl';
-    $s = rtrim($s, '-');
+    return rtrim(substr($s, 0, $len), '-') ?: $fallback;
+}
+
+function style_slug(string $name): string
+{
+    $s = ascii_slug($name, 32, 'styl');
     $id = $s;
     $st = db()->prepare('SELECT 1 FROM styles WHERE id = ?');
     for ($n = 2; ; $n++) {

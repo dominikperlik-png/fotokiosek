@@ -88,6 +88,7 @@ import cz.fotokiosek.PaymentRequest
 import cz.fotokiosek.PaymentResult
 import cz.fotokiosek.PaymentTerminal
 import cz.fotokiosek.PhotoStore
+import cz.fotokiosek.PhotoUploadWorker
 import cz.fotokiosek.Pricing
 import cz.fotokiosek.PrintLayout
 import cz.fotokiosek.PrintMedia
@@ -230,12 +231,16 @@ fun KioskApp(
         }
     }
 
-    fun saveToGallery(photo: Bitmap) {
-        if (!settings.galleryEnabled) return
+    /** Fotka bez loga ([kind] = photo / ai) → galerie (když je zapnutá) a záloha na Google Disk (když je zapnutá). */
+    fun saveToGallery(photo: Bitmap, kind: String) {
+        val gallery = settings.galleryEnabled
         val keepDays = settings.keepDays
         scope.launch(Dispatchers.IO) {
-            runCatching { PhotoStore.saveToGallery(context, photo, keepDays) }
-                .onFailure { AppLog.e("Galerie", "Uložení fotky do galerie selhalo", it) }
+            if (gallery) {
+                runCatching { PhotoStore.saveToGallery(context, photo, keepDays) }
+                    .onFailure { AppLog.e("Galerie", "Uložení fotky do galerie selhalo", it) }
+            }
+            PhotoUploadWorker.enqueue(context, settings, photo, kind)
         }
     }
 
@@ -277,7 +282,7 @@ fun KioskApp(
                 if (aiRaw === raw) result.getOrNull()?.let {
                     aiLast = it
                     aiLastStyle = style.name
-                    saveToGallery(it)
+                    saveToGallery(it, "ai")
                     ReportWorker.ai(context, settings, style.name)
                 }
                 return@launch
@@ -287,7 +292,7 @@ fun KioskApp(
                 aiLast = image
                 aiLastStyle = style.name
                 ReportWorker.ai(context, settings, style.name)
-                saveToGallery(image)
+                saveToGallery(image, "ai")
                 showResult(image, style.name)
             }.onFailure { e ->
                 if (e is CancellationException) throw e
@@ -352,7 +357,7 @@ fun KioskApp(
             waitUntil(end + 300)
             result.onSuccess { raw ->
                 // Galerie (když je zapnutá): fotka bez loga, aby šla znovu tisknout i posílat.
-                saveToGallery(raw)
+                saveToGallery(raw, "photo")
                 ReportWorker.photo(context, settings)
                 // Mezistav: pořízená fotka se „vyvolá“, mezitím se na pozadí připraví logo a tisková verze.
                 val developing = Screen.Developing(raw)
@@ -951,6 +956,16 @@ private fun IdleScreen(settings: KioskSettings, cameraError: String?, onShoot: (
         } else {
             ShutterButton(Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp), onShoot)
         }
+        Text(
+            "Vyfocením souhlasíš s obchodními podmínkami.",
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 16.dp)
+                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 4.dp),
+            fontSize = 16.sp,
+            color = Color.White.copy(alpha = 0.85f),
+        )
     }
 }
 

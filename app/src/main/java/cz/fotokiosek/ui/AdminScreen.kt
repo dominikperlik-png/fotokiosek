@@ -82,6 +82,7 @@ import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
 import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
+import cz.fotokiosek.PhotoUploadWorker
 import cz.fotokiosek.Pricing
 import cz.fotokiosek.QrScan
 import cz.fotokiosek.ReportWorker
@@ -230,6 +231,7 @@ fun AdminScreen(
     var reportUrl by remember { mutableStateOf(settings.reportUrl) }
     var reportToken by remember { mutableStateOf(settings.reportToken) }
     var deviceName by remember { mutableStateOf(settings.deviceName) }
+    var driveBackup by remember { mutableStateOf(settings.driveBackup) }
     var reportTest by remember { mutableStateOf<String?>(null) }
     /** Otevřená čtečka QR: "gemini" nebo "report", jinak null. */
     var qrFor by remember { mutableStateOf<String?>(null) }
@@ -349,6 +351,7 @@ fun AdminScreen(
         reportUrl.trim(),
         reportToken.trim(),
         deviceName.trim().ifBlank { "Fotokiosek" },
+        driveBackup,
         apiKey.trim(),
         aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL },
         aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3,
@@ -414,6 +417,7 @@ fun AdminScreen(
         settings.reportUrl = reportUrl.trim()
         settings.reportToken = reportToken.trim()
         settings.deviceName = deviceName.trim().ifBlank { "Fotokiosek" }
+        settings.driveBackup = driveBackup
         settings.geminiApiKey = apiKey.trim()
         settings.geminiModel = aiModel.trim().ifBlank { GeminiClient.DEFAULT_MODEL }
         settings.aiMaxTries = aiMaxTries.toIntOrNull()?.coerceIn(1, 20) ?: 3
@@ -1139,6 +1143,18 @@ fun AdminScreen(
                     }
                 }) { Text("Otestovat spojení s účetnictvím") }
                 reportTest?.let { Text(it, fontSize = 18.sp) }
+
+                SwitchRow("Zálohovat fotky na Google Disk (přes účetnictví)", driveBackup) { driveBackup = it }
+                val waiting = androidx.compose.runtime.produceState(0) {
+                    value = withContext(Dispatchers.IO) { PhotoUploadWorker.pending(context) }
+                }.value
+                Text(
+                    "Každá fotka (i AI verze, bez loga) se pošle na web účetnictví a ten ji uloží na Google Disk do složky " +
+                        "Fotokiosek / RRRR-MM-DD. Disk se připojuje na webu (Nastavení → Google Disk). Bez internetu se fotky " +
+                        "pošlou později." + if (waiting > 0) " Čeká na zálohu: $waiting." else "",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
             }
 
             // ---------------------------------------------------------------- Aktualizace

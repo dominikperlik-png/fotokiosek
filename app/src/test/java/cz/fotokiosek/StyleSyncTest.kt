@@ -53,4 +53,11 @@ class StyleSyncTest {
         assertEquals(StyleSync.WebConfig(0, "", "", "", "Kč"), none)
         assertEquals(20, StyleSync.parseConfig("""{"config":{"max_copies":99}}""")!!.maxCopies)
     }
+
+    @Test
+    fun photosUrlFromReportUrl() {
+        assertEquals("https://x.cz/f/photos-api.php", PhotoUploadWorker.photosUrl(" https://x.cz/f/api.php "))
+        assertNull(PhotoUploadWorker.photosUrl("https://x.cz/f/"))
+        assertNull(PhotoUploadWorker.photosUrl(""))
+    }
 }

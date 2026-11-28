@@ -102,8 +102,19 @@ function report_qr_payload(string $url, string $token, string $name): string
     return $base;
 }
 
-$apiUrl = ((!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') ? 'https' : 'http')
-    . '://' . ($_SERVER['HTTP_HOST'] ?? 'tvuj-server') . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/api.php';
+$apiUrl = site_url('api.php');
+
+// Výsledek připojení Google Disku (drive.php → sem).
+$driveResult = (string)($_GET['drive'] ?? '');
+$driveDetail = (string)($_SESSION['drive_msg'] ?? '');
+unset($_SESSION['drive_msg']);
+if ($driveResult === 'ok') {
+    $msg = 'Google Disk připojen. Fotky z automatů se budou ukládat do složky Fotokiosek.';
+} elseif ($driveResult === 'off') {
+    $msg = 'Google Disk odpojen. Fotky na Disku zůstávají.';
+} elseif ($driveResult === 'error') {
+    $err = 'Google Disk se nepřipojil: ' . ($driveDetail !== '' ? $driveDetail : 'neznámá chyba.');
+}
 
 page_header('Nastavení', $user);
 ?>
@@ -190,6 +201,36 @@ page_header('Nastavení', $user);
         <label>Jméno nového automatu <input name="name" placeholder="např. Fotokiosek OC Chodov" required></label>
         <button class="primary">Přidat automat a vytvořit token</button>
     </form>
+</section>
+
+<section class="card" id="drive">
+    <h2>Google Disk – záloha fotek</h2>
+    <?php if (!drive_configured()): ?>
+        <p class="muted">Automaty můžou každou fotku (i AI verzi, bez loga) zálohovat na tvůj Google Disk do složky
+            <em>Fotokiosek</em> a v ní do složek podle data. Nejdřív v Google Cloud vytvoř přihlašovací klienta
+            (návod <code>navod-google-disk.md</code>) a na server do <code>config.php</code> přidej
+            <code>GOOGLE_CLIENT_ID</code> a <code>GOOGLE_CLIENT_SECRET</code>.</p>
+        <p>Adresa pro přesměrování (Authorized redirect URI): <code><?= h(drive_redirect_uri()) ?></code></p>
+    <?php elseif (!drive_connected()): ?>
+        <?php if (setting('drive_lost') !== ''): ?>
+            <p class="error">Přístup ke Google Disku vypršel nebo byl zrušen (<?= h(fmt_time((int)setting('drive_lost'))) ?>) – fotky se nezálohují. Připoj Disk znovu; automaty mezitím fotky drží a pošlou je potom.</p>
+        <?php endif; ?>
+        <p class="muted">Klikni a přihlas se účtem Google, na jehož Disk se mají fotky ukládat. Aplikace uvidí jen soubory, které sama vytvoří.
+            Když Google ukáže „aplikace není ověřená“, je to tvoje vlastní aplikace: <em>Rozšířené → Přejít na…</em></p>
+        <p><a class="button primary" href="drive.php?action=connect&amp;csrf=<?= h($_SESSION['drive_link'] = bin2hex(random_bytes(16))) ?>">Připojit Google Disk</a></p>
+        <p class="muted">Adresa pro přesměrování v Google Cloud musí být přesně: <code><?= h(drive_redirect_uri()) ?></code></p>
+    <?php else: ?>
+        <p><span class="badge ok">připojeno</span> <?= setting('drive_account') !== '' ? 'účet <strong>' . h(setting('drive_account')) . '</strong>' : '' ?>
+            <?php if (setting('drive_root_id') !== ''): ?>
+                · <a href="https://drive.google.com/drive/folders/<?= h(rawurlencode(setting('drive_root_id'))) ?>" target="_blank" rel="noopener">otevřít složku Fotokiosek</a>
+            <?php endif; ?></p>
+        <p class="muted">Zálohu zapneš v automatu: menu správce → Účetnictví (web) → <em>Zálohovat fotky na Google Disk</em>.
+            Fotky se nemažou. Prohlížet je jde i tady v <a href="gallery.php">Galerii</a>.</p>
+        <form method="post" action="drive.php" class="inline confirm" data-confirm="Odpojit Google Disk? Fotky na Disku zůstanou, nové se nebudou zálohovat.">
+            <?= csrf_field() ?><input type="hidden" name="action" value="disconnect">
+            <button class="link danger">Odpojit Google Disk</button>
+        </form>
+    <?php endif; ?>
 </section>
 
 <section class="card">

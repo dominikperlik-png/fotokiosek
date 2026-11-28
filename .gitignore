@@ -35,4 +35,5 @@ platform-tools/
 
 # Webové účetnictví: databáze a místní nastavení serveru
 web/data/*.sqlite*
+web/data/drive.lock
 web/config.php

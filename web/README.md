@@ -31,6 +31,12 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
      ```
    - Za reverzní proxy (Cloudflare, další nginx) nastav v `config.php` `TRUSTED_PROXY` – jinak se limit špatných přihlášení
      počítá pro všechny dohromady.
+   - Záloha fotek na Google Disk (nepovinné): v `config.php` `GOOGLE_CLIENT_ID` a `GOOGLE_CLIENT_SECRET` z Google Cloud
+     (OAuth klient typu *Web application*, redirect URI `…/drive.php`, oprávnění jen `drive.file`, stav *In production*),
+     pak Nastavení → Google Disk → Připojit. Potřebuje `curl` (nebo `allow_url_fopen`) a přístup ven na Google (443).
+     Fotky z automatu mají 1–3 MB: nginx `client_max_body_size 20m;`, PHP `post_max_size = 16M`, `upload_max_filesize = 16M`,
+     a časové limity (PHP-FPM `request_terminate_timeout`, nginx `fastcgi_read_timeout` / proxy) aspoň 200 s.
+     Podrobný návod pro Google Cloud: `navod-google-disk.md` v kořeni repozitáře.
 4. Otevři `https://tvuj-server.cz/fotokiosek/login.php`, zadej instalační kód a založ si účet (jméno + heslo, aspoň 10 znaků).
 5. **Nastavení** → vyplň cenu za fotku a údaje na účtenku → **Přidat automat** → ukáže se adresa API a token.
    Další lidi přidáš v **Uživatelé** (jméno, role, heslo) – jméno a heslo jim pak pošli, heslo si změní v Nastavení.
@@ -47,8 +53,12 @@ Po přihlášení je vidět přehled po dnech (datum, čas, počet fotek, tržba
 | `settings.php` | Cena, měna, údaje prodávajícího, pravidla pro automaty (max. kopií, ceny AI fotky a e-mailu – stahují se se styly), automaty a jejich tokeny (uložené jen jako SHA-256) – jen správce; změna vlastního hesla – všichni. |
 | `styles.php` | Knihovna AI stylů (jen správce): název, ikona, prompt, pořadí, náhled (nahrát, nebo vygenerovat přes Gemini z referenční fotky – vymyšlená postava, stejná na všech náhledech). Gemini klíč a model pro generování se ukládají do databáze. |
 | `styles-api.php` | Styly pro automaty (`GET`, `Authorization: Bearer <token>`): `{"ok":true,"styles":[{"id","name","icon","prompt","thumb","updated"}],"config":{"max_copies"|null,"price_photo","price_ai","price_email","currency"}}` (styly v pořadí z webu, config = pravidla z Nastavení), náhled `GET ?thumb=<soubor>`. Automat si je stáhne po startu, každých 6 h a tlačítkem v menu správce; které styly nabídne, se vybírá v automatu. |
+| `photos-api.php` | Záloha fotek z automatu (`POST` surový JPEG, `?uuid=&kind=photo` (nebo `ai`) `&taken=<unix>`, token automatu) → Google Disk `Fotokiosek/RRRR-MM-DD/`; tabulka `uploads` hlídá duplicity. 503 = Disk nepřipojený / nedostupný (automat zkusí později). |
+| `drive.php` | Připojení / odpojení Google Disku (OAuth, `state` v session, refresh token v `settings`). |
+| `gallery.php` | Galerie (jen správce): fotky z Disku po dnech, náhledy a stahování přes server (na Disku zůstávají soukromé). |
 | `users.php` | Uživatelé (jen správce): přidat, role, nové heslo, smazat. Role **Správce** = vše, **Přehled a účtenky** = přehled + vystavení a tisk účtenek. Sebe ani posledního správce smazat nejde; nové heslo odhlásí uživatele na všech zařízeních. |
 | `inc/bootstrap.php` | Databáze (tabulky se vytvoří samy), session, CSRF, pomocné funkce. |
+| `inc/drive.php` | Google Disk: OAuth (`drive.file`), obnova tokenu, složky (zámek `data/drive.lock`), nahrávání, výpis, náhledy. `DRIVE_TEST_BASE` v config.php jen pro místní test s napodobeným Googlem. |
 | `inc/styles.php` | Výchozí styly, ukládání náhledů, volání Gemini. Pevná část promptu `STYLE_PRESERVE` = `AiStyles.PRESERVE` v aplikaci (měnit obojí). |
 | `data/` | Databáze `fotokiosek.sqlite` a `styles/` (náhledy, referenční fotka) – **zálohuj obojí**. |
 

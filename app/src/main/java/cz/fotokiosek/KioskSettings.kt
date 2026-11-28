@@ -123,6 +123,9 @@ class KioskSettings(context: Context) {
     var priceEmail by string("price_email", "")
     var priceCurrency by string("price_currency", "Kč")
 
+    /** Záloha každé fotky (i AI verze, bez loga) na Google Disk přes web účetnictví (photos-api.php). */
+    var driveBackup by bool("drive_backup", false)
+
     /** Samoobslužný režim: náhled s vodoznakem, tisk / e-mail (a AI fotka) až po zaplacení terminálem. */
     var selfService by bool("self_service", false)
 

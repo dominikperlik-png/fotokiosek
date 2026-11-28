@@ -119,6 +119,9 @@ button:hover { background: rgba(127, 127, 127, 0.2); }
 button:active { transform: scale(0.98); }
 button.primary { background: var(--accent); color: #fff; }
 button.primary:hover { background: var(--accent-hover); }
+a.button { display: inline-block; font-size: 15px; font-weight: 500; padding: 10px 20px; border-radius: 980px; text-decoration: none; background: var(--fill); color: var(--accent); }
+a.button.primary { background: var(--accent); color: #fff; }
+a.button.primary:hover { background: var(--accent-hover); text-decoration: none; }
 button.link { background: none; padding: 0; border-radius: 0; color: var(--accent); }
 button.link:hover { text-decoration: underline; }
 button.danger { color: var(--danger); }
@@ -228,6 +231,10 @@ tbody tr:hover td { background: rgba(127, 127, 127, 0.05); }
 @media print { .qr { break-inside: avoid; } }
 
 /* ---------- AI styly ---------- */
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+.photo-card { margin: 0; background: var(--fill); border-radius: 12px; overflow: hidden; }
+.photo-card img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #000; }
+.photo-card figcaption { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; font-size: 14px; }
 .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
 .style-card { background: var(--fill); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .style-img { display: block; aspect-ratio: 3 / 2; background: var(--fill); }

@@ -18,6 +18,7 @@ if (is_file(dirname(__DIR__) . '/config.php')) {
     require dirname(__DIR__) . '/config.php';
 }
 require __DIR__ . '/styles.php';
+require __DIR__ . '/drive.php';
 
 /** Ořízne text na $len znaků (bez mbstring po bajtech, ale bez rozbití UTF-8). */
 function clip(mixed $v, int $len): string
@@ -110,6 +111,15 @@ function migrate(PDO $pdo): void
             thumb TEXT,
             updated_at INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS uploads (
+            uuid TEXT PRIMARY KEY,
+            device_id INTEGER NOT NULL REFERENCES devices(id),
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            drive_id TEXT NOT NULL,
+            taken_at INTEGER NOT NULL,
+            created_at INTEGER NOT NULL
+        );
         SQL);
     // Knihovna AI stylů: výchozí styly jen jednou (smazané se pak samy nevrátí).
     $seeded = $pdo->query("SELECT value FROM settings WHERE key = 'styles_seeded'")->fetchColumn();
@@ -136,6 +146,14 @@ function migrate(PDO $pdo): void
 }
 
 const ROLES = ['admin' => 'Správce', 'viewer' => 'Přehled a účtenky'];
+
+/** Celá adresa souboru webu ve stejné složce (např. api.php, drive.php) podle aktuálního požadavku. */
+function site_url(string $file): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    return ($https ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'tvuj-server')
+        . rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/' . $file;
+}
 /** Události z automatu: tisk, AI úprava, vyfocení, odeslání e-mailem (+ "ping" = jen test spojení). */
 const EVENT_TYPES = ['print', 'ai', 'photo', 'email'];
 
@@ -494,6 +512,7 @@ function page_header(string $title, ?array $user = null): void
         $items = ['index.php' => 'Přehled', 'receipts.php' => 'Účtenky'];
         if (is_admin($user)) {
             $items['styles.php'] = 'AI styly';
+            $items['gallery.php'] = 'Galerie';
             $items['users.php'] = 'Uživatelé';
         }
         $items['settings.php'] = 'Nastavení';
