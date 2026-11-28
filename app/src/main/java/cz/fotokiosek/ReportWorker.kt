@@ -64,23 +64,26 @@ class ReportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         private const val KEY_EVENT = "event"
         private const val MAX_ATTEMPTS = 500
 
-        /** Tisk [copies] kopií. [source] = foto / galerie, [style] = název AI stylu, nebo null. */
-        fun print(context: Context, settings: KioskSettings, copies: Int, source: String, style: String?) =
-            enqueue(context, settings, "print", copies, source, style)
+        /** Tisk [copies] kopií. [source] = foto / galerie, [style] = název AI stylu, nebo null; [paid] = zaplaceno v samoobsluze. */
+        fun print(context: Context, settings: KioskSettings, copies: Int, source: String, style: String?, paid: java.math.BigDecimal? = null) =
+            enqueue(context, settings, "print", copies, source, style, paid)
 
         /** Pořízená fotka (z fotoaparátu, ne z galerie). */
         fun photo(context: Context, settings: KioskSettings) =
             enqueue(context, settings, "photo", 0, "foto", null)
 
         /** Fotka zařazená k odeslání e-mailem ([source] = foto / galerie, [style] = AI styl fotky, nebo null). */
-        fun email(context: Context, settings: KioskSettings, source: String, style: String?) =
-            enqueue(context, settings, "email", 0, source, style)
+        fun email(context: Context, settings: KioskSettings, source: String, style: String?, paid: java.math.BigDecimal? = null) =
+            enqueue(context, settings, "email", 0, source, style, paid)
 
         /** Povedená AI úprava (placená). */
         fun ai(context: Context, settings: KioskSettings, style: String) =
             enqueue(context, settings, "ai", 0, "ai", style)
 
-        private fun enqueue(context: Context, settings: KioskSettings, type: String, copies: Int, source: String, style: String?) {
+        private fun enqueue(
+            context: Context, settings: KioskSettings, type: String, copies: Int, source: String, style: String?,
+            paid: java.math.BigDecimal? = null,
+        ) {
             if (settings.reportUrl.isBlank() || settings.reportToken.isBlank()) return
             val event = JSONObject()
                 .put("uuid", UUID.randomUUID().toString())
@@ -91,6 +94,7 @@ class ReportWorker(context: Context, params: WorkerParameters) : CoroutineWorker
                 .put("mode", settings.printMode)
                 .put("device", settings.deviceName)
                 .put("time", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ", Locale.US).format(Date()))
+                .apply { if (paid != null) put("paid", Pricing.plain(paid)) } // samoobsluha: zaplacená částka (web ji zatím jen přijme)
                 .toString()
             val request = OneTimeWorkRequestBuilder<ReportWorker>()
                 .setInputData(workDataOf(KEY_EVENT to event))

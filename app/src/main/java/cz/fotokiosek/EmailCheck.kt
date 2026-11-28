@@ -42,6 +42,13 @@ object RateLimit {
     private const val MAX_PER_HOUR = 5
     private val sent = mutableMapOf<String, MutableList<Long>>()
 
+    /** Jen zjistit, jestli by [allow] prošlo (samoobsluha: před placením). */
+    @Synchronized
+    fun wouldAllow(email: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        return sent[email].orEmpty().count { now - it <= 60 * 60 * 1000L } < MAX_PER_HOUR
+    }
+
     @Synchronized
     fun allow(email: String): Boolean {
         val now = SystemClock.elapsedRealtime()

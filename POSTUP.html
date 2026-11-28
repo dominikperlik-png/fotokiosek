@@ -144,6 +144,7 @@ Každý krok si můžeš odškrtnout, zaškrtnutí si prohlížeč zapamatuje.</
     <li><a href="#logo">Vlastní logo</a></li>
     <li><a href="#ai">AI FOTOKIOSEK</a></li>
     <li><a href="#ucetnictvi">Webové účetnictví</a></li>
+    <li><a href="#samoobsluha">Samoobslužný režim (platba)</a></li>
     <li><a href="#aktualizace">Aktualizace z GitHubu</a></li>
     <li><a href="#problemy">Řešení problémů</a></li>
     <li><a href="#zpet">Vrácení do původního stavu</a></li>
@@ -395,6 +396,16 @@ pin=4826</pre></div>
   <li><input type="checkbox" data-id="uc2"> V automatu: menu správce → <strong>Účetnictví (web)</strong> → <strong>📷 Načíst adresu a token z QR kódu</strong> a podrž před kamerou telefon nebo monitor s QR kódem z účetnictví (nebo vlož adresu a token ručně) → <strong>Otestovat spojení s účetnictvím</strong> → Uložit.</li>
   <li><input type="checkbox" data-id="uc3"> Bez internetu se záznamy pošlou později samy. Počítadlo „Vytištěno“ v menu správce jde vynulovat tlačítkem pod stavovým rámečkem – záznamy na webu zůstanou.</li>
   <li><input type="checkbox" data-id="uc4"> V účetnictví → <strong>Nastavení → Samoobslužný režim a pravidla</strong>: max. počet kopií jednoho tisku (platí pro všechny automaty místo čísla v menu správce; prázdné = podle automatu) a ceny AI fotky a poslání e-mailem (pro samoobslužný režim). Automat si to stáhne spolu se styly – hned tlačítkem <strong>🔄 Synchronizovat styly</strong>.</li>
+</ul>
+
+<h2 id="samoobsluha">Samoobslužný režim (platba)</h2>
+<p>Automat jde provozovat bez obsluhy: zákazník si fotku zaplatí sám. Zatím je napojený jen <strong>zkušební terminál</strong> – nic se neúčtuje, na obrazovce platby jsou tlačítka <em>Simulovat úspěšnou platbu</em> a <em>Simulovat chybu</em>. Skutečný platební terminál se napojí později.</p>
+<ul class="checklist">
+  <li><input type="checkbox" data-id="ss1"> Na webu účetnictví → <strong>Nastavení</strong>: cena za 1 vytištěnou fotku, v kartě <em>Samoobslužný režim a pravidla</em> cena AI fotky, cena za poslání e-mailem (prázdné = zdarma) a případně max. počet kopií.</li>
+  <li><input type="checkbox" data-id="ss1b"> Tiskárna: v samoobsluze funguje tisk přes síť (IPP) nebo SELPHY přes USB, ne „systémový dialog“. Když tiskárna hlásí problém (papír, páska), automat tisk ani nenabídne k zaplacení. Galerii nech chráněnou PINem – galerie bez PINu se v samoobsluze taky platí.</li>
+  <li><input type="checkbox" data-id="ss2"> V automatu: menu správce → AI → <strong>🔄 Synchronizovat styly</strong> (stáhne i ceny) → sekce <strong>Samoobslužný režim (platba)</strong> → zkontroluj ceny a zapni přepínač → Uložit.</li>
+  <li><input type="checkbox" data-id="ss3"> Jak to vypadá pro zákazníka: náhled fotky má přes sebe nápis <strong>NÁHLED</strong>. <em>Vytisknout</em> → počet kopií a cena → <em>Zaplatit</em> → platba → fotka se vytiskne bez nápisu. Stejně se platí <em>Poslat na e-mail</em>. AI úprava se platí až s tiskem nebo e-mailem – jen když se výsledek líbí.</li>
+  <li><input type="checkbox" data-id="ss4"> Když cena chybí (web ji ještě neposlal), zákazník uvidí „Cena není nastavená“ a nic se neprodá. Když na obrazovce platby 2 minuty nikdo nic neudělá, platba se zruší a automat se vrátí na úvod (fotka se zahodí). Když se zaplacený tisk nepovede, je to v menu správce u <em>Poslední chyba</em> s poznámkou ZAPLACENO – fotku vytiskneš z galerie (z galerie se neplatí).</li>
 </ul>
 
 <h2 id="aktualizace">Aktualizace z GitHubu</h2>

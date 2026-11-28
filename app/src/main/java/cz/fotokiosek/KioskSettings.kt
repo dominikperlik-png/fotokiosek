@@ -123,6 +123,9 @@ class KioskSettings(context: Context) {
     var priceEmail by string("price_email", "")
     var priceCurrency by string("price_currency", "Kč")
 
+    /** Samoobslužný režim: náhled s vodoznakem, tisk / e-mail (a AI fotka) až po zaplacení terminálem. */
+    var selfService by bool("self_service", false)
+
     /** Kolik kopií smí zákazník vytisknout: podle webu, jinak podle menu správce. */
     fun maxCopies(): Int = (if (webMaxCopies > 0) webMaxCopies else printMaxCopies).coerceIn(1, 20)
 

@@ -82,6 +82,7 @@ import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
 import cz.fotokiosek.MailDiagnostics
 import cz.fotokiosek.PrinterDiscovery
+import cz.fotokiosek.Pricing
 import cz.fotokiosek.QrScan
 import cz.fotokiosek.ReportWorker
 import cz.fotokiosek.SendPhotoWorker
@@ -250,6 +251,7 @@ fun AdminScreen(
     var printerUrl by remember { mutableStateOf(settings.printerUrl) }
     var printerName by remember { mutableStateOf(settings.printerName) }
     var printMaxCopies by remember { mutableStateOf(settings.printMaxCopies.toString()) }
+    var selfService by remember { mutableStateOf(settings.selfService) }
     var printerTest by remember { mutableStateOf<String?>(null) }
     val foundPrinters = remember { mutableStateListOf<FoundPrinter>() }
     var searching by remember { mutableStateOf(false) }
@@ -327,6 +329,7 @@ fun AdminScreen(
         IppClient.normalize(printerUrl),
         printerName,
         printMaxCopies.toIntOrNull()?.coerceIn(1, 20) ?: 5,
+        selfService,
         host.trim(),
         port.toIntOrNull() ?: 465,
         security,
@@ -381,6 +384,7 @@ fun AdminScreen(
         settings.printerUrl = IppClient.normalize(printerUrl)
         settings.printerName = printerName
         settings.printMaxCopies = printMaxCopies.toIntOrNull()?.coerceIn(1, 20) ?: 5
+        settings.selfService = selfService
         settings.smtpHost = host.trim()
         settings.smtpPort = port.toIntOrNull() ?: 465
         settings.smtpSecurity = security
@@ -884,6 +888,27 @@ fun AdminScreen(
                     ) { logoPosition = it }
                     Field("Velikost loga (% šířky fotky, 5–60)", logoSize, number = true) { logoSize = it.filter(Char::isDigit) }
                 }
+            }
+
+            // ---------------------------------------------------------------- Samoobsluha
+            Section("Samoobslužný režim (platba)") {
+                SwitchRow("Samoobslužný režim – tisk a e-mail až po zaplacení", selfService) { selfService = it }
+                Text(
+                    "Zákazník vidí náhled s vodoznakem „NÁHLED“, u tisku vybere počet kopií a vidí cenu, zaplatí terminálem " +
+                        "a fotka se vytiskne bez vodoznaku. Stejně se platí poslání na e-mail. AI úprava se platí až s tiskem nebo " +
+                        "e-mailem (jen když se výsledek líbí). Tisk a e-mail z galerie (obsluha) se neplatí.",
+                    fontSize = 15.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                )
+                val cur = settings.priceCurrency
+                fun shown(v: String) = Pricing.parse(v)?.let { Pricing.format(it, cur) } ?: "nenastaveno"
+                Text(
+                    "Ceny z webu: fotka (tisk 1 ks) ${shown(settings.pricePhoto)}, AI úprava ${shown(settings.priceAi)}, " +
+                        "e-mail ${shown(settings.priceEmail)}. Mění se na webu (Nastavení → Samoobslužný režim a pravidla) " +
+                        "a stahují se se styly (🔄 Synchronizovat styly v sekci AI). Bez ceny se daná služba v samoobsluze neprodá.",
+                    fontSize = 17.sp,
+                )
+                Text("Platební terminál: zkušební (simulace) – nic se neúčtuje. Skutečný terminál se napojí později.", fontSize = 17.sp, color = Color(0xFFFFB74D))
             }
 
             // ---------------------------------------------------------------- Tisk

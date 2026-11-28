@@ -47,10 +47,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
@@ -80,7 +83,12 @@ import cz.fotokiosek.GeminiClient
 import cz.fotokiosek.IppClient
 import cz.fotokiosek.KioskSettings
 import cz.fotokiosek.LogoStore
+import cz.fotokiosek.MockTerminal
+import cz.fotokiosek.PaymentRequest
+import cz.fotokiosek.PaymentResult
+import cz.fotokiosek.PaymentTerminal
 import cz.fotokiosek.PhotoStore
+import cz.fotokiosek.Pricing
 import cz.fotokiosek.PrintLayout
 import cz.fotokiosek.PrintMedia
 import cz.fotokiosek.RateLimit
@@ -95,9 +103,11 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import java.math.BigDecimal
 
 sealed interface Screen {
     data object Idle : Screen
@@ -115,6 +125,8 @@ sealed interface Screen {
     data class AiWorking(val raw: Bitmap, val style: AiStyle) : Screen
     data class AiFailed(val raw: Bitmap, val message: String) : Screen
     data object Admin : Screen
+    /** Samoobslužný režim: čeká se na zaplacení [request]; po zaplacení [onPaid], jinak zpět na [back]. Rovnost = identita. */
+    class Payment(val request: PaymentRequest, val back: Screen, val onPaid: () -> Unit) : Screen
 }
 
 /** Krátká hláška nahoře na obrazovce (červená = chyba, zelená = info). */
@@ -150,6 +162,11 @@ fun KioskApp(
     var aiLastStyle by remember { mutableStateOf<String?>(null) }
     var shownStyle by remember { mutableStateOf<String?>(null) }
     val flash = remember { Animatable(0f) }
+    /** Platební terminál samoobslužného režimu (zatím jen zkušební – viz Payment.kt). */
+    val terminal = remember { MockTerminal() }
+    /** AI fotka na obrazovce (null = původní) a AI fotka, za kterou už zákazník zaplatil. */
+    var shownAi by remember { mutableStateOf<Bitmap?>(null) }
+    var aiPaidFor by remember { mutableStateOf<Bitmap?>(null) }
 
     /** Uložení neuložených změn z otevřeného menu správce (nastavuje AdminScreen). */
     var adminAutoSave by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -157,6 +174,7 @@ fun KioskApp(
     fun goIdle() {
         // Menu správce zavřené nečinností: nejdřív uložit jeho neuložené změny (úvodní obrazovka už je má ukázat).
         if (screen == Screen.Admin) adminAutoSave?.invoke()
+        if (screen is Screen.Payment) terminal.cancel()
         screen = Screen.Idle
         askPin = false
         printFor = null
@@ -168,6 +186,8 @@ fun KioskApp(
         aiTries = 0
         aiLastStyle = null
         shownStyle = null
+        shownAi = null
+        aiPaidFor = null
     }
 
     /** E-mailová verze (celá fotka s logem) a tisková verze (ořez na papír + logo; jen při zapnutém tisku). */
@@ -227,6 +247,7 @@ fun KioskApp(
             if (screen !== from) return@launch // mezitím jinam (nečinnost, dvojí klepnutí)
             printPhoto = print
             shownStyle = style
+            shownAi = if (style != null) photo else null
             screen = Screen.Review(mail)
         }
     }
@@ -365,8 +386,9 @@ fun KioskApp(
         }
     }
 
-    fun send(photo: Bitmap, email: String) {
-        if (!RateLimit.allow(email)) {
+    fun send(photo: Bitmap, email: String, paid: BigDecimal? = null) {
+        // Zaplacené se pošle vždy (limit adres se kontroloval před placením).
+        if (!RateLimit.allow(email) && paid == null) {
             notice = Notice("Na tuhle adresu už odešlo hodně fotek. Zkus to prosím později.")
             return
         }
@@ -378,15 +400,99 @@ fun KioskApp(
                 val file = PhotoStore.save(context, photo)
                 SendPhotoWorker.enqueue(context, file, email)
                 AppLog.i("Fronta", "Fotka ${file.name} zařazena k odeslání")
-                ReportWorker.email(context, settings, source, style)
+                ReportWorker.email(context, settings, source, style, paid)
             } catch (e: Exception) {
-                settings.lastError = "Uložení fotky selhalo: ${e.message}"
+                settings.lastError = "Uložení fotky selhalo: ${e.message}" + paidNote(paid)
                 AppLog.e("Fronta", "Uložení fotky selhalo", e)
             }
         }
     }
 
-    fun print(photo: Bitmap, copies: Int) {
+    /**
+     * Samoobslužný režim platí pro zákazníka. Tisk / e-mail z galerie se neplatí jen u galerie chráněné PINem
+     * (obsluha) – galerie bez PINu by jinak byla cesta, jak tisknout zdarma.
+     */
+    fun selfService() = settings.selfService && !(fromGallery && settings.galleryRequirePin)
+
+    /** Proč teď v samoobsluze nejde tisknout (kontrola PŘED placením), nebo null. */
+    fun selfServicePrintProblem(): String? = when {
+        settings.printMode == "system" -> "Tisk přes systémový dialog v samoobsluze nejde. Zavolej prosím obsluhu."
+        settings.printMode != "selphy_usb" && settings.printerUrl.isBlank() -> "Tiskárna není nastavená. Zavolej prosím obsluhu."
+        settings.printMode == "selphy_usb" && SelphyUsb.problem != null -> "Tiskárna: ${SelphyUsb.problem}. Zavolej prosím obsluhu."
+        else -> null
+    }
+
+    /**
+     * Cena akce v samoobslužném režimu: [base] (tisk × kopie, e-mail) + AI fotka, pokud je na obrazovce
+     * a ještě není zaplacená (AI se platí, až když se výsledek líbí). null = cena chybí → neprodávat.
+     * Druhá hodnota = doplněk popisu („ + AI úprava“).
+     */
+    fun selfServicePrice(base: BigDecimal?): Pair<BigDecimal, String>? {
+        if (base == null) return null
+        val ai = shownAi
+        if (ai == null || ai === aiPaidFor) return base to ""
+        val aiPrice = Pricing.parse(settings.priceAi) ?: return null
+        return base.add(aiPrice) to " + AI úprava"
+    }
+
+    fun missingPrice() {
+        AppLog.w("Platba", "Samoobslužný režim: chybí cena (synchronizuj styly a pravidla z webu)")
+        notice = Notice("Cena není nastavená. Zavolej prosím obsluhu.")
+    }
+
+    /** Zaplatit [total] (0 = zdarma → hned [onPaid]); obrazovka platby, po zaplacení zpět na [back] a [onPaid]. */
+    fun pay(total: BigDecimal, description: String, back: Screen, onPaid: () -> Unit) {
+        if (screen is Screen.Payment) return // dvojí klepnutí – terminál smí mít jen jednu platbu
+        val ai = shownAi
+        val paidAction = {
+            if (ai != null) aiPaidFor = ai
+            onPaid()
+        }
+        if (total.signum() == 0) {
+            paidAction()
+            return
+        }
+        val request = PaymentRequest(total, settings.priceCurrency, description)
+        val paying = Screen.Payment(request, back, paidAction)
+        screen = paying
+        AppLog.i("Platba", "Platba ${Pricing.plain(total)} ${request.currency} (${terminal.name}): $description")
+        // Obrazovku platby opustil cokoli jiného (nečinnost, menu správce) → platbu v terminálu zrušit.
+        val watcher = scope.launch {
+            snapshotFlow { screen }.first { it !== paying }
+            terminal.cancel()
+        }
+        scope.launch {
+            val result = terminal.pay(request)
+            watcher.cancel()
+            if (screen !== paying) {
+                // Zaplaceno těsně před zrušením (nečinnost, menu správce): zaplacené se musí dodat.
+                if (result == PaymentResult.Paid) {
+                    AppLog.w("Platba", "Zaplaceno až po opuštění obrazovky platby – služba se dodává")
+                    settings.lastError = "Platba ${Pricing.plain(total)} ${request.currency} přišla až po zrušení obrazovky platby – služba dodána dodatečně, zkontroluj"
+                    paying.onPaid()
+                }
+                return@launch
+            }
+            when (result) {
+                PaymentResult.Paid -> {
+                    AppLog.i("Platba", "Zaplaceno: ${Pricing.plain(total)} ${request.currency}")
+                    screen = back
+                    paying.onPaid()
+                }
+                PaymentResult.Cancelled -> {
+                    AppLog.i("Platba", "Platba zrušena")
+                    screen = back
+                }
+                is PaymentResult.Failed -> {
+                    AppLog.w("Platba", "Platba selhala: ${result.message}")
+                    screen = back
+                    notice = Notice("Platba se nepovedla: ${result.message}")
+                }
+            }
+        }
+    }
+
+    fun print(photo: Bitmap, copies: Int, paid: BigDecimal? = null) {
         printFor = null
         // Pro účetnictví zachytit hned – výsledek tisku přijde později, kdy už může být jiná obrazovka.
         val reportSource = if (fromGallery) "galerie" else "foto"
@@ -399,18 +505,19 @@ fun KioskApp(
             runCatching { (context as? Activity)?.let { SystemPrint.print(it, PrintLayout.fit(photo, media), copies, job, media) } }
                 .onSuccess {
                     settings.printCount += copies
-                    ReportWorker.print(context, settings, copies, reportSource, reportStyle)
+                    ReportWorker.print(context, settings, copies, reportSource, reportStyle, paid)
                 }
                 .onFailure { e ->
                     AppLog.e("Tisk", "Systémový tisk nejde spustit", e)
-                    settings.lastError = "Tisk: ${e.message}"
-                    notice = Notice("Tisk se nepovedl. Požádej obsluhu.")
+                    settings.lastError = "Tisk: ${e.message}" + paidNote(paid)
+                    notice = Notice(printFailedText(paid))
                 }
             return
         }
         val usbSelphy = settings.printMode == "selphy_usb"
         if (!usbSelphy && settings.printerUrl.isBlank()) {
-            notice = Notice("Tiskárna není nastavená. Požádej obsluhu.")
+            if (paid != null) settings.lastError = "Tisk: tiskárna není nastavená" + paidNote(paid)
+            notice = Notice(if (paid != null) printFailedText(paid) else "Tiskárna není nastavená. Požádej obsluhu.")
             return
         }
         printing = true
@@ -430,11 +537,11 @@ fun KioskApp(
             printing = false
             if (result.ok) {
                 settings.printCount += copies
-                ReportWorker.print(context, settings, copies, reportSource, reportStyle)
+                ReportWorker.print(context, settings, copies, reportSource, reportStyle, paid)
                 notice = Notice("Fotka se tiskne, vyzvedni si ji u tiskárny.", error = false)
             } else {
-                settings.lastError = "Tisk: ${result.message}"
-                notice = Notice("Tisk se nepovedl. Požádej obsluhu.")
+                settings.lastError = "Tisk: ${result.message}" + paidNote(paid)
+                notice = Notice(printFailedText(paid))
             }
         }
     }
@@ -446,7 +553,11 @@ fun KioskApp(
             val idleSeconds = (SystemClock.elapsedRealtime() - lastTouch.value) / 1000
             val limit = if (screen == Screen.Admin) 180 else settings.idleTimeout.coerceAtLeast(10)
             // Odpočet se neruší; čekání na AI má delší limit (síť může viset déle než timeout klienta).
-            val effectiveLimit = if (screen is Screen.AiWorking) AI_WORKING_LIMIT_S else limit
+            val effectiveLimit = when (screen) {
+                is Screen.AiWorking -> AI_WORKING_LIMIT_S
+                is Screen.Payment -> PAYMENT_LIMIT_S // nezaplaceno včas → zrušit (goIdle zruší i terminál)
+                else -> limit
+            }
             if (screen != Screen.Idle && screen !is Screen.Countdown && idleSeconds >= effectiveLimit) goIdle()
             if ((askPin || askGalleryPin) && idleSeconds >= 30) {
                 askPin = false
@@ -486,6 +597,7 @@ fun KioskApp(
                 is Screen.Developing -> DevelopingScreen(s.raw, settings.fillScreen)
                 is Screen.Review -> ReviewScreen(
                     photo = printPhoto ?: s.photo,
+                    watermark = selfService(),
                     canPrint = settings.printEnabled,
                     printing = printing,
                     retakeLabel = if (fromGallery) "Galerie" else "Znovu",
@@ -511,9 +623,26 @@ fun KioskApp(
                 )
                 is Screen.Confirm -> ConfirmScreen(
                     email = s.email,
+                    price = if (!selfService()) null else selfServicePrice(Pricing.parse(settings.priceEmail))
+                        ?.takeIf { it.first.signum() > 0 }
+                        ?.let { (total, extra) -> "Cena: " + Pricing.format(total, settings.priceCurrency) + if (extra.isNotEmpty()) " (včetně AI úpravy)" else "" },
                     onEdit = { screen = Screen.Email(s.photo, s.email) },
-                    onConfirm = { send(s.photo, s.email) },
+                    onConfirm = {
+                        if (!selfService()) {
+                            send(s.photo, s.email)
+                        } else {
+                            val price = selfServicePrice(Pricing.parse(settings.priceEmail))
+                            when {
+                                price == null -> missingPrice()
+                                // Limit adres zkontrolovat před placením (send by jinak odmítl už zaplacenou fotku).
+                                !RateLimit.wouldAllow(s.email) ->
+                                    notice = Notice("Na tuhle adresu už odešlo hodně fotek. Zkus to prosím později.")
+                                else -> pay(price.first, "Poslání fotky na e-mail${price.second}", s) { send(s.photo, s.email, price.first) }
+                            }
+                        }
+                    },
                 )
+                is Screen.Payment -> PaymentScreen(s.request, terminal, onCancel = { terminal.cancel() })
                 Screen.Sent -> SentScreen(onDone = { goIdle() })
                 is Screen.AiPick -> AiPickScreen(
                     styles = remember(s) { aiStyles() },
@@ -600,10 +729,28 @@ fun KioskApp(
 
 
             printFor?.let { photo ->
+                val self = selfService()
+                val unit = if (self) Pricing.parse(settings.pricePhoto) else null
                 CopiesDialog(
                     max = settings.maxCopies(),
+                    // Samoobsluha: cena za zvolený počet kopií (+ AI úprava, když ještě není zaplacená).
+                    price = if (!self) null else { copies ->
+                        selfServicePrice(unit?.multiply(BigDecimal(copies)))
+                            ?.let { (total, extra) -> "Cena: " + Pricing.format(total, settings.priceCurrency) + if (extra.isNotEmpty()) " (včetně AI úpravy)" else "" }
+                    },
                     onCancel = { printFor = null },
-                    onConfirm = { copies -> print(photo, copies) },
+                    onConfirm = { copies ->
+                        if (!self) {
+                            print(photo, copies)
+                        } else {
+                            val price = selfServicePrice(unit?.multiply(BigDecimal(copies)))
+                            val problem = selfServicePrintProblem()
+                            printFor = null
+                            if (price == null) missingPrice()
+                            else if (problem != null) notice = Notice(problem)
+                            else pay(price.first, "Tisk fotky 10×15 – $copies ks${price.second}", screen) { print(photo, copies, price.first) }
+                        }
+                    },
                 )
             }
 
@@ -634,6 +781,15 @@ private const val MAX_PIN_FAILURES = 5
 private const val PIN_LOCK_MS = 5 * 60_000L
 /** Po kolika s nečinnosti se zruší čekání na AI (klient má limit 120 s na čtení). */
 private const val AI_WORKING_LIMIT_S = 180
+/** Po kolika s nečinnosti se zruší čekání na platbu. */
+private const val PAYMENT_LIMIT_S = 120
+
+private fun paidNote(paid: BigDecimal?) =
+    if (paid != null) " (ZAPLACENO ${Pricing.plain(paid)} – vrátit zákazníkovi, nebo vytisknout z galerie)" else ""
+
+private fun printFailedText(paid: BigDecimal?) =
+    if (paid != null) "Tisk se nepovedl. Platba proběhla – zavolej prosím obsluhu." else "Tisk se nepovedl. Požádej obsluhu."
+
 
 /**
  * Živý náhled – snímky jsou už otočené a zrcadlené stejně jako výsledná fotka
@@ -901,6 +1057,8 @@ private fun CountdownOverlay(value: Int) {
 @Composable
 private fun ReviewScreen(
     photo: Bitmap,
+    /** Samoobsluha: přes náhled vodoznak „NÁHLED“ (jen na obrazovce – tiskne a posílá se fotka bez něj). */
+    watermark: Boolean,
     canPrint: Boolean,
     printing: Boolean,
     retakeLabel: String,
@@ -919,7 +1077,11 @@ private fun ReviewScreen(
         Image(
             bitmap = image,
             contentDescription = "Pořízená fotka",
-            modifier = Modifier.weight(1f).fillMaxWidth().padding(vertical = 24.dp),
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(vertical = 24.dp)
+                .then(if (watermark) Modifier.watermark(image.width, image.height) else Modifier),
             contentScale = ContentScale.Fit,
         )
         if (extra.isNotEmpty()) {
@@ -940,6 +1102,89 @@ private fun ReviewScreen(
             }
             BigButton("Poslat na e-mail", Modifier.weight(1.4f), onClick = onSend)
         }
+    }
+}
+
+/**
+ * Vodoznak „NÁHLED“ přes fotku: šikmé řádky textu jen v ploše obrázku (ContentScale.Fit → spočítat
+ * obdélník fotky v prvku). Kreslí se na plátno (drawWithCache), samotná fotka zůstává bez vodoznaku.
+ */
+private fun Modifier.watermark(imageW: Int, imageH: Int): Modifier = drawWithCache {
+    val scale = minOf(size.width / imageW, size.height / imageH)
+    val w = imageW * scale
+    val h = imageH * scale
+    val left = (size.width - w) / 2
+    val top = (size.height - h) / 2
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(110, 255, 255, 255)
+        textSize = maxOf(w, h) / 9f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        setShadowLayer(6f, 0f, 2f, android.graphics.Color.argb(90, 0, 0, 0))
+    }
+    val text = "NÁHLED"
+    val step = paint.textSize * 2.2f
+    val textW = paint.measureText(text)
+    onDrawWithContent {
+        drawContent()
+        drawIntoCanvas { canvas ->
+            val c = canvas.nativeCanvas
+            c.save()
+            c.clipRect(left, top, left + w, top + h)
+            c.rotate(-30f, left + w / 2, top + h / 2)
+            val span = maxOf(w, h) * 1.5f
+            var y = top + h / 2 - span
+            var row = 0
+            while (y < top + h / 2 + span) {
+                var x = left + w / 2 - span + (row % 2) * step
+                while (x < left + w / 2 + span) {
+                    c.drawText(text, x, y, paint)
+                    x += textW + step
+                }
+                y += step
+                row++
+            }
+            c.restore()
+        }
+    }
+}
+
+/**
+ * Samoobsluha – platba: částka, co se platí, stav terminálu, Zrušit. U zkušebního terminálu
+ * navíc tlačítka pro simulaci výsledku (než se napojí skutečný terminál).
+ */
+@Composable
+private fun PaymentScreen(request: PaymentRequest, terminal: PaymentTerminal, onCancel: () -> Unit) {
+    BackHandler(onBack = onCancel)
+    Column(
+        Modifier.fillMaxSize().background(Dark).padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text("Platba kartou", fontSize = 40.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(12.dp))
+        Text(request.description, fontSize = 28.sp, textAlign = TextAlign.Center, color = Color.White.copy(alpha = 0.8f))
+        Spacer(Modifier.height(24.dp))
+        Text(Pricing.format(request.amount, request.currency), color = Accent, fontSize = 96.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(24.dp))
+        val dots = rememberInfiniteTransition(label = "pay")
+        val pulse by dots.animateFloat(0.4f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse")
+        Text(
+            terminal.status.ifEmpty { "Čekám na platbu…" } + "\nPřilož kartu nebo telefon k terminálu.",
+            fontSize = 30.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.graphicsLayer { alpha = pulse },
+        )
+        Spacer(Modifier.height(48.dp))
+        if (terminal is MockTerminal) {
+            Text("Zkušební terminál – nic se neúčtuje", fontSize = 20.sp, color = Color(0xFFFFB74D))
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.widthIn(max = 1000.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                BigButton("Simulovat úspěšnou platbu", Modifier.weight(1.4f)) { terminal.simulate(PaymentResult.Paid) }
+                BigButton("Simulovat chybu", Modifier.weight(1f), primary = false) { terminal.simulate(PaymentResult.Failed("terminál odmítl kartu (simulace)")) }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+        BigButton("Zrušit", Modifier.widthIn(max = 500.dp).fillMaxWidth(), primary = false, onClick = onCancel)
     }
 }
 
@@ -1076,7 +1321,8 @@ private fun GalleryItem(file: File, onClick: () -> Unit, onDelete: (() -> Unit)?
 
 /** Dialog s počtem kopií: − / + (1 až [max]) a potvrzení. */
 @Composable
-private fun CopiesDialog(max: Int, onCancel: () -> Unit, onConfirm: (Int) -> Unit) {
+/** [price] = samoobsluha: text ceny za počet kopií (null z lambdy = cena chybí → nejde zaplatit). */
+private fun CopiesDialog(max: Int, price: ((Int) -> String?)? = null, onCancel: () -> Unit, onConfirm: (Int) -> Unit) {
     var copies by remember { mutableIntStateOf(1) }
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -1094,10 +1340,22 @@ private fun CopiesDialog(max: Int, onCancel: () -> Unit, onConfirm: (Int) -> Uni
                 RoundKey("+", enabled = copies < max) { copies++ }
             }
             Text("max. $max", fontSize = 20.sp, color = Color.White.copy(alpha = 0.6f))
+            val priceText = price?.invoke(copies)
+            if (price != null) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    priceText ?: "Cena není nastavená – zavolej obsluhu",
+                    fontSize = 30.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                    color = if (priceText != null) Accent else Color(0xFFFF6E6E),
+                )
+            }
             Spacer(Modifier.height(28.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                 BigButton("Zrušit", Modifier.weight(1f), primary = false, onClick = onCancel)
-                BigButton("Vytisknout", Modifier.weight(1.3f)) { onConfirm(copies) }
+                BigButton(
+                    if (price != null) "Zaplatit" else "Vytisknout", Modifier.weight(1.3f),
+                    enabled = price == null || priceText != null,
+                ) { onConfirm(copies) }
             }
         }
     }
@@ -1118,7 +1376,7 @@ private fun RoundKey(label: String, enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ConfirmScreen(email: String, onEdit: () -> Unit, onConfirm: () -> Unit) {
+private fun ConfirmScreen(email: String, price: String? = null, onEdit: () -> Unit, onConfirm: () -> Unit) {
     BackHandler(onBack = onEdit)
     Column(
         Modifier.fillMaxSize().background(Dark).padding(32.dp),
@@ -1130,13 +1388,17 @@ private fun ConfirmScreen(email: String, onEdit: () -> Unit, onConfirm: () -> Un
         Text(email, color = Accent, fontSize = 46.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
         Text("Je adresa správně?", fontSize = 30.sp)
+        if (price != null) {
+            Spacer(Modifier.height(24.dp))
+            Text(price, color = Accent, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        }
         Spacer(Modifier.height(48.dp))
         Row(
             Modifier.widthIn(max = 900.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             BigButton("Opravit", Modifier.weight(1f), primary = false, onClick = onEdit)
-            BigButton("Ano, poslat", Modifier.weight(1f), onClick = onConfirm)
+            BigButton(if (price != null) "Zaplatit a poslat" else "Ano, poslat", Modifier.weight(1f), onClick = onConfirm)
         }
     }
 }
